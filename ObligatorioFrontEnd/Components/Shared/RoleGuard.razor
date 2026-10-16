@@ -1,0 +1,22 @@
+@inject DemoAuthService Auth
+@inject NavigationManager Navigation
+
+@if (IsAllowed)
+{
+    @ChildContent
+}
+
+@code {
+    [Parameter, EditorRequired] public UserRole[] Roles { get; set; } = [];
+    [Parameter, EditorRequired] public RenderFragment? ChildContent { get; set; }
+
+    private bool IsAllowed => Auth.HasAnyRole(Roles);
+
+    protected override void OnInitialized()
+    {
+        if (!IsAllowed)
+        {
+            Navigation.NavigateTo("/", replace: true);
+        }
+    }
+}

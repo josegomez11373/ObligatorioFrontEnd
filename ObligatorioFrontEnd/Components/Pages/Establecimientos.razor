@@ -1,0 +1,161 @@
+@page "/establecimientos"
+@page "/establecimientos/{editId:guid}"
+
+@implements IDisposable
+
+@inject EstablecimientoService EstablecimientoService
+@inject EmpresaService EmpresaService
+@inject NavigationManager Navigation
+
+@using ObligatorioFrontEnd.Models
+
+<PageTitle>Establecimientos | SIGA</PageTitle>
+
+<RoleGuard Roles="new[] { UserRole.AdministradorEmpresa, UserRole.IngenieroAgronomo }">
+    <section class="page-header">
+        <div>
+            <p class="eyebrow">BL-03 · Gestión de establecimientos</p>
+            <h1>Establecimientos</h1>
+            <p class="page-intro">Crear, editar y desactivar establecimientos pertenecientes a una empresa.</p>
+        </div>
+        <div>
+            <button class="primary-button" @onclick="NewEstablecimiento">Nuevo establecimiento</button>
+        </div>
+    </section>
+
+    <section class="content-grid">
+        <div class="card">
+            <h2>Listado</h2>
+            @if (establecimientos is null)
+            {
+                <p>Cargando...</p>
+            }
+            else if (!establecimientos.Any())
+            {
+                <p class="muted">No hay establecimientos registrados.</p>
+            }
+            else
+            {
+                <table class="table">
+                    <thead>
+                        <tr><th>Empresa</th><th>Nombre</th><th>Superficie (ha)</th><th>Estado</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var s in establecimientos)
+                        {
+                            <tr>
+                                <td>@(EmpresaService.GetById(s.EmpresaId)?.Nombre ?? "—")</td>
+                                <td>@s.Nombre</td>
+                                <td>@(s.SuperficieHa?.ToString("G") ?? "—")</td>
+                                <td>@(s.Activo ? "Activo" : "Desactivado")</td>
+                                <td class="actions">
+                                    <button @onclick="() => EditEstablecimiento(s.Id)">Editar</button>
+                                    @if (s.Activo)
+                                    {
+                                        <button class="destructive" @onclick="() => Deactivate(s.Id)">Desactivar</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+
+        <div class="card">
+            <h2>@(editModel.Id == Guid.Empty ? "Crear establecimiento" : "Editar establecimiento")</h2>
+            <EstablecimientoForm Model="editModel" OnValidSubmit="HandleFormSubmit" OnCancel="Cancel" />
+            @if (!string.IsNullOrWhiteSpace(formError))
+            {
+                <p class="form-error">@formError</p>
+            }
+        </div>
+    </section>
+</RoleGuard>
+
+@code {
+    private IReadOnlyList<Establecimiento>? establecimientos;
+    private EstablecimientoEditModel editModel = new();
+    private string? formError;
+
+    [Parameter]
+    public Guid? editId { get; set; }
+
+    protected override void OnInitialized()
+    {
+        EstablecimientoService.StateChanged += HandleChanged;
+        Load();
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (editId is not null)
+        {
+            var s = EstablecimientoService.GetById(editId.Value);
+            if (s is not null)
+            {
+                editModel = new EstablecimientoEditModel { Id = s.Id, EmpresaId = s.EmpresaId, Nombre = s.Nombre, SuperficieHa = s.SuperficieHa, Activo = s.Activo };
+            }
+        }
+    }
+
+    private void Load()
+    {
+        establecimientos = EstablecimientoService.GetAll()
+            .Where(e => true)
+            .OrderBy(e => e.Nombre)
+            .ToList();
+        StateHasChanged();
+    }
+
+    private void HandleChanged() => Load();
+
+    private void NewEstablecimiento()
+    {
+        editModel = new EstablecimientoEditModel();
+        Navigation.NavigateTo("/establecimientos", replace: true);
+    }
+
+    private void EditEstablecimiento(Guid id)
+    {
+        Navigation.NavigateTo($"/establecimientos/{id}", replace: false);
+    }
+
+    private void Cancel()
+    {
+        editModel = new EstablecimientoEditModel();
+        formError = null;
+        Navigation.NavigateTo("/establecimientos", replace: true);
+    }
+
+    private void HandleFormSubmit(EstablecimientoEditModel model)
+    {
+        formError = null;
+        if (string.IsNullOrWhiteSpace(model.Nombre))
+        {
+            formError = "El nombre es obligatorio.";
+            return;
+        }
+
+        if (model.Id == Guid.Empty)
+        {
+            EstablecimientoService.Create(model.EmpresaId, model.Nombre.Trim(), model.SuperficieHa);
+        }
+        else
+        {
+            var updated = new Establecimiento { Id = model.Id, EmpresaId = model.EmpresaId, Nombre = model.Nombre.Trim(), SuperficieHa = model.SuperficieHa, Activo = model.Activo };
+            EstablecimientoService.Update(updated);
+        }
+
+        editModel = new EstablecimientoEditModel();
+        Navigation.NavigateTo("/establecimientos", replace: true);
+    }
+
+    private void Deactivate(Guid id)
+    {
+        EstablecimientoService.Deactivate(id);
+    }
+
+    public void Dispose() => EstablecimientoService.StateChanged -= HandleChanged;
+}
+

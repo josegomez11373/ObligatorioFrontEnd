@@ -1,0 +1,163 @@
+@page "/empresas"
+@page "/empresas/{editId:guid}"
+
+@implements IDisposable
+
+@inject EmpresaService EmpresaService
+@inject NavigationManager Navigation
+
+<PageTitle>Empresas | SIGA</PageTitle>
+
+<RoleGuard Roles="new[] { UserRole.AdministradorGeneral }">
+    <section class="page-header">
+        <div>
+            <p class="eyebrow">BL-02 · Gestión de empresas</p>
+            <h1>Empresas</h1>
+            <p class="page-intro">Crear, editar y desactivar empresas. No se borra el historial.</p>
+        </div>
+        <div>
+            <button class="primary-button" @onclick="NewEmpresa">Nueva empresa</button>
+        </div>
+    </section>
+
+    <section class="content-grid">
+        <div class="card">
+            <h2>Listado</h2>
+            @if (empresas is null)
+            {
+                <p>Cargando...</p>
+            }
+            else if (!empresas.Any())
+            {
+                <p class="muted">No hay empresas registradas.</p>
+            }
+            else
+            {
+                <table class="table">
+                    <thead>
+                        <tr><th>Nombre</th><th>Creado</th><th>Estado</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var e in empresas)
+                        {
+                            <tr>
+                                <td>@e.Nombre</td>
+                                <td>@e.CreatedAt.ToLocalTime().ToString("g")</td>
+                                <td>@(e.Activa ? "Activa" : "Desactivada")</td>
+                                <td class="actions">
+                                    <button @onclick="() => EditEmpresa(e.Id)">Editar</button>
+                                    @if (e.Activa)
+                                    {
+                                        <button class="destructive" @onclick="() => Deactivate(e.Id)">Desactivar</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+
+        <div class="card">
+            <h2>@(editModel.Id == Guid.Empty ? "Crear empresa" : "Editar empresa")</h2>
+            <EmpresaForm Model="editModel" OnValidSubmit="HandleFormSubmit" OnCancel="Cancel" />
+            @if (!string.IsNullOrWhiteSpace(formError))
+            {
+                <p class="form-error">@formError</p>
+            }
+        </div>
+    </section>
+</RoleGuard>
+
+@code {
+    private IReadOnlyList<Empresa>? empresas;
+
+    private EmpresaEditModel editModel = new();
+    private string? formError;
+
+    [Parameter]
+    public Guid? editId { get; set; }
+
+    protected override void OnInitialized()
+    {
+        EmpresaService.StateChanged += HandleChanged;
+        Load();
+    }
+
+    protected override void OnParametersSet()
+    {
+        // Si la ruta contiene un id de edición, cargarlo en el formulario
+        if (editId is not null)
+        {
+            var e = EmpresaService.GetById(editId.Value);
+            if (e is not null)
+            {
+                editModel = new EmpresaEditModel { Id = e.Id, Nombre = e.Nombre, Activa = e.Activa };
+            }
+        }
+    }
+
+    private void Load()
+    {
+        // Ejemplo de LINQ: filtrar y ordenar (actualmente sin filtro)
+        empresas = EmpresaService.GetAll()
+            .Where(e => true)
+            .OrderBy(e => e.Nombre)
+            .ToList();
+        StateHasChanged();
+    }
+
+    private void HandleChanged() => Load();
+
+    private void NewEmpresa()
+    {
+        editModel = new EmpresaEditModel();
+        // Limpiar cualquier parámetro de ruta
+        Navigation.NavigateTo("/empresas", replace: true);
+    }
+
+    private void EditEmpresa(Guid id)
+    {
+        // Navegar a la ruta con parámetro para mostrar cómo funcionan rutas y parámetros
+        Navigation.NavigateTo($"/empresas/{id}", replace: false);
+    }
+
+    private void Cancel()
+    {
+        editModel = new EmpresaEditModel();
+        formError = null;
+        Navigation.NavigateTo("/empresas", replace: true);
+    }
+
+    private void HandleFormSubmit(EmpresaEditModel model)
+    {
+        formError = null;
+        // Validación adicional en C# usando LINQ si hace falta
+        if (string.IsNullOrWhiteSpace(model.Nombre))
+        {
+            formError = "El nombre es obligatorio.";
+            return;
+        }
+
+        if (model.Id == Guid.Empty)
+        {
+            EmpresaService.Create(model.Nombre.Trim());
+        }
+        else
+        {
+            var updated = new Empresa { Id = model.Id, Nombre = model.Nombre.Trim(), Activa = model.Activa, CreatedAt = DateTime.UtcNow };
+            EmpresaService.Update(updated);
+        }
+
+        editModel = new EmpresaEditModel();
+        Navigation.NavigateTo("/empresas", replace: true);
+    }
+
+    private void Deactivate(Guid id)
+    {
+        EmpresaService.Deactivate(id);
+    }
+
+    public void Dispose() => EmpresaService.StateChanged -= HandleChanged;
+}
+

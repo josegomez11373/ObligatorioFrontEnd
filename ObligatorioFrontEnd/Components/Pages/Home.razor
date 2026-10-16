@@ -1,0 +1,40 @@
+@page "/"
+@inject DemoAuthService Auth
+
+<PageTitle>Resumen | SIGA</PageTitle>
+
+<section class="page-header">
+    <div>
+        <p class="eyebrow">@Auth.CurrentUser?.Scope</p>
+        <h1>Buen día, @Auth.CurrentUser?.Name?.Split(' ')[0]</h1>
+        <p class="page-intro">Esta es la base inicial de SIGA. Desde aquí se organizará el trabajo de cada campaña.</p>
+    </div>
+    <span class="role-chip">@Auth.CurrentUser?.Role.DisplayName()</span>
+</section>
+
+<section class="next-step" aria-labelledby="next-step-title">
+    <p class="eyebrow">Primer flujo</p>
+    <h2 id="next-step-title">La estructura está preparada</h2>
+    <p>El siguiente módulo será la gestión de empresas, establecimientos, potreros y campañas. Después incorporaremos el registro de eventos y sus fotografías.</p>
+</section>
+
+<section class="dashboard-grid" aria-label="Estado del proyecto">
+    <article>
+        <span class="status-icon">1</span>
+        <h2>Sesión y roles</h2>
+        <p>Acceso simulado y menú adaptado al perfil actual.</p>
+        <span class="status-ready">Listo</span>
+    </article>
+    <article>
+        <span class="status-icon">2</span>
+        <h2>Estructura agrícola</h2>
+        <p>Empresas, establecimientos, potreros y campañas.</p>
+        <span class="status-next">Siguiente</span>
+    </article>
+    <article>
+        <span class="status-icon">3</span>
+        <h2>Eventos de campo</h2>
+        <p>Registro de observaciones, ubicación y fotografías.</p>
+        <span class="status-later">Pendiente</span>
+    </article>
+</section>

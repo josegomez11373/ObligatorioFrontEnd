@@ -1,0 +1,53 @@
+@using ObligatorioFrontEnd.Models
+@inject EstablecimientoService EstablecimientoService
+
+<EditForm Model="Model" OnValidSubmit="HandleValidSubmit">
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+
+    <div class="form-field">
+        <label for="est">Establecimiento</label>
+        <InputSelect id="est" @bind-Value="Model.EstablecimientoId">
+            @foreach (var est in EstablecimientoService.GetAll())
+            {
+                <option value="@est.Id">@est.Nombre</option>
+            }
+        </InputSelect>
+    </div>
+
+    <div class="form-field">
+        <label for="nombre">Nombre</label>
+        <InputText id="nombre" @bind-Value="Model.Nombre" />
+    </div>
+
+    <div class="form-field">
+        <label for="sup">Superficie (ha)</label>
+        <InputNumber id="sup" @bind-Value="Model.SuperficieHa" />
+    </div>
+
+    <div class="form-field">
+        <label>
+            <InputCheckbox @bind-Value="Model.Activo" /> Activo
+        </label>
+    </div>
+
+    <div class="form-actions">
+        <button class="primary-button" type="submit">Guardar</button>
+        <button type="button" @onclick="HandleCancel">Cancelar</button>
+    </div>
+</EditForm>
+
+@code {
+    [Parameter, EditorRequired]
+    public PotreroEditModel Model { get; set; } = new();
+
+    [Parameter]
+    public EventCallback<PotreroEditModel> OnValidSubmit { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    private Task HandleValidSubmit() => OnValidSubmit.InvokeAsync(Model);
+
+    private Task HandleCancel() => OnCancel.InvokeAsync();
+}

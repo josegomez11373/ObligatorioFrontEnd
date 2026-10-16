@@ -1,0 +1,78 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject DemoAuthService Auth
+@inject NavigationManager Navigation
+
+@if (Auth.CurrentUser is null)
+{
+    <main class="auth-redirect" aria-live="polite">Redirigiendo al inicio de sesión...</main>
+}
+else
+{
+    <div class="siga-shell">
+        <aside class="sidebar">
+            <a class="brand" href="/" aria-label="SIGA inicio">
+                <span class="brand-mark">S</span>
+                <span><strong>SIGA</strong><small>Gestión agropecuaria</small></span>
+            </a>
+
+            <nav class="main-nav" aria-label="Navegación principal">
+                <NavLink href="/" Match="NavLinkMatch.All"><span>▦</span> Resumen</NavLink>
+                @if (Auth.HasAnyRole(UserRole.AdministradorGeneral))
+                {
+                    <NavLink href="/empresas"><span>◫</span> Empresas</NavLink>
+                }
+                @if (Auth.HasAnyRole(UserRole.AdministradorEmpresa, UserRole.IngenieroAgronomo))
+                {
+                    <NavLink href="/establecimientos"><span>⌂</span> Establecimientos</NavLink>
+                    <NavLink href="/potreros"><span>⛳</span> Potreros</NavLink>
+                    <NavLink href="/campanas"><span>◌</span> Campañas</NavLink>
+                }
+                @if (Auth.HasAnyRole(UserRole.IngenieroAgronomo, UserRole.OperarioCampo))
+                {
+                    <NavLink href="/eventos"><span>!</span> Eventos</NavLink>
+                }
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="user-summary">
+                    <span class="avatar">@Auth.CurrentUser.Initials</span>
+                    <span><strong>@Auth.CurrentUser.Name</strong><small>@Auth.CurrentUser.Role.DisplayName()</small></span>
+                </div>
+                <button class="sign-out" @onclick="Logout">Cerrar sesión</button>
+            </div>
+        </aside>
+
+        <main class="page-content">
+            @Body
+        </main>
+    </div>
+}
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        Auth.StateChanged += HandleAuthenticationChanged;
+
+        if (!Auth.IsAuthenticated)
+        {
+            Navigation.NavigateTo("/login", replace: true);
+        }
+    }
+
+    private void Logout()
+    {
+        Auth.Logout();
+        Navigation.NavigateTo("/login", replace: true);
+    }
+
+    private void HandleAuthenticationChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Auth.StateChanged -= HandleAuthenticationChanged;
+}

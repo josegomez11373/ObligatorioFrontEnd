@@ -1,0 +1,38 @@
+@using System.ComponentModel.DataAnnotations
+@using ObligatorioFrontEnd.Models
+
+<EditForm Model="Model" OnValidSubmit="HandleValidSubmit">
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+
+    <div class="form-field">
+        <label for="nombre">Nombre</label>
+        <InputText id="nombre" @bind-Value="Model.Nombre" />
+    </div>
+
+    <div class="form-field">
+        <label>
+            <InputCheckbox @bind-Value="Model.Activa" /> Activa
+        </label>
+    </div>
+
+    <div class="form-actions">
+        <button class="primary-button" type="submit">Guardar</button>
+        <button type="button" @onclick="HandleCancel">Cancelar</button>
+    </div>
+</EditForm>
+
+@code {
+    [Parameter, EditorRequired]
+    public EmpresaEditModel Model { get; set; } = new();
+
+    [Parameter]
+    public EventCallback<EmpresaEditModel> OnValidSubmit { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    private Task HandleValidSubmit() => OnValidSubmit.InvokeAsync(Model);
+
+    private Task HandleCancel() => OnCancel.InvokeAsync();
+}

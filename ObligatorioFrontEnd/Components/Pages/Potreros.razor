@@ -1,0 +1,160 @@
+@page "/potreros"
+@page "/potreros/{editId:guid}"
+
+@implements IDisposable
+
+@inject PotreroService PotreroService
+@inject EstablecimientoService EstablecimientoService
+@inject NavigationManager Navigation
+
+@using ObligatorioFrontEnd.Models
+
+<PageTitle>Potreros | SIGA</PageTitle>
+
+<RoleGuard Roles="new[] { UserRole.AdministradorEmpresa, UserRole.IngenieroAgronomo }">
+    <section class="page-header">
+        <div>
+            <p class="eyebrow">BL-04 · Gestión de potreros</p>
+            <h1>Potreros</h1>
+            <p class="page-intro">Crear y consultar potreros de un establecimiento; la desactivación conserva historial.</p>
+        </div>
+        <div>
+            <button class="primary-button" @onclick="NewPotrero">Nuevo potrero</button>
+        </div>
+    </section>
+
+    <section class="content-grid">
+        <div class="card">
+            <h2>Listado</h2>
+            @if (potreros is null)
+            {
+                <p>Cargando...</p>
+            }
+            else if (!potreros.Any())
+            {
+                <p class="muted">No hay potreros registrados.</p>
+            }
+            else
+            {
+                <table class="table">
+                    <thead>
+                        <tr><th>Establecimiento</th><th>Nombre</th><th>Superficie (ha)</th><th>Estado</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var p in potreros)
+                        {
+                            <tr>
+                                <td>@(EstablecimientoService.GetById(p.EstablecimientoId)?.Nombre ?? "—")</td>
+                                <td>@p.Nombre</td>
+                                <td>@(p.SuperficieHa?.ToString("G") ?? "—")</td>
+                                <td>@(p.Activo ? "Activo" : "Desactivado")</td>
+                                <td class="actions">
+                                    <button @onclick="() => EditPotrero(p.Id)">Editar</button>
+                                    @if (p.Activo)
+                                    {
+                                        <button class="destructive" @onclick="() => Deactivate(p.Id)">Desactivar</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+
+        <div class="card">
+            <h2>@(editModel.Id == Guid.Empty ? "Crear potrero" : "Editar potrero")</h2>
+            <PotreroForm Model="editModel" OnValidSubmit="HandleFormSubmit" OnCancel="Cancel" />
+            @if (!string.IsNullOrWhiteSpace(formError))
+            {
+                <p class="form-error">@formError</p>
+            }
+        </div>
+    </section>
+</RoleGuard>
+
+@code {
+    private IReadOnlyList<Potrero>? potreros;
+    private PotreroEditModel editModel = new();
+    private string? formError;
+
+    [Parameter]
+    public Guid? editId { get; set; }
+
+    protected override void OnInitialized()
+    {
+        PotreroService.StateChanged += HandleChanged;
+        Load();
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (editId is not null)
+        {
+            var p = PotreroService.GetById(editId.Value);
+            if (p is not null)
+            {
+                editModel = new PotreroEditModel { Id = p.Id, EstablecimientoId = p.EstablecimientoId, Nombre = p.Nombre, SuperficieHa = p.SuperficieHa, Activo = p.Activo };
+            }
+        }
+    }
+
+    private void Load()
+    {
+        potreros = PotreroService.GetAll()
+            .Where(p => true)
+            .OrderBy(p => p.Nombre)
+            .ToList();
+        StateHasChanged();
+    }
+
+    private void HandleChanged() => Load();
+
+    private void NewPotrero()
+    {
+        editModel = new PotreroEditModel();
+        Navigation.NavigateTo("/potreros", replace: true);
+    }
+
+    private void EditPotrero(Guid id)
+    {
+        Navigation.NavigateTo($"/potreros/{id}", replace: false);
+    }
+
+    private void Cancel()
+    {
+        editModel = new PotreroEditModel();
+        formError = null;
+        Navigation.NavigateTo("/potreros", replace: true);
+    }
+
+    private void HandleFormSubmit(PotreroEditModel model)
+    {
+        formError = null;
+        if (string.IsNullOrWhiteSpace(model.Nombre))
+        {
+            formError = "El nombre es obligatorio.";
+            return;
+        }
+
+        if (model.Id == Guid.Empty)
+        {
+            PotreroService.Create(model.EstablecimientoId, model.Nombre.Trim(), model.SuperficieHa);
+        }
+        else
+        {
+            var updated = new Potrero { Id = model.Id, EstablecimientoId = model.EstablecimientoId, Nombre = model.Nombre.Trim(), SuperficieHa = model.SuperficieHa, Activo = model.Activo };
+            PotreroService.Update(updated);
+        }
+
+        editModel = new PotreroEditModel();
+        Navigation.NavigateTo("/potreros", replace: true);
+    }
+
+    private void Deactivate(Guid id)
+    {
+        PotreroService.Deactivate(id);
+    }
+
+    public void Dispose() => PotreroService.StateChanged -= HandleChanged;
+}
