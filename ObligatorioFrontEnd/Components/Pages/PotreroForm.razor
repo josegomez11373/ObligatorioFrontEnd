@@ -1,5 +1,6 @@
 @using ObligatorioFrontEnd.Models
 @inject EstablecimientoService EstablecimientoService
+@inject IUserScope UserScope
 
 <EditForm Model="Model" OnValidSubmit="HandleValidSubmit">
     <DataAnnotationsValidator />
@@ -8,7 +9,8 @@
     <div class="form-field">
         <label for="est">Establecimiento</label>
         <InputSelect id="est" @bind-Value="Model.EstablecimientoId">
-            @foreach (var est in EstablecimientoService.GetAll())
+            <option value="@Guid.Empty">Seleccioná un establecimiento...</option>
+            @foreach (var est in EstablecimientoService.GetAll().Where(e => e.Activo || e.Id == Model.EstablecimientoId))
             {
                 <option value="@est.Id">@est.Nombre</option>
             }
@@ -23,6 +25,11 @@
     <div class="form-field">
         <label for="sup">Superficie (ha)</label>
         <InputNumber id="sup" @bind-Value="Model.SuperficieHa" />
+    </div>
+
+    <div class="form-field">
+        <label for="limites">Límites</label>
+        <InputText id="limites" @bind-Value="Model.Limites" />
     </div>
 
     <div class="form-field">

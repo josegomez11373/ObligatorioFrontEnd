@@ -5,7 +5,8 @@ public enum UserRole
     AdministradorGeneral,
     AdministradorEmpresa,
     IngenieroAgronomo,
-    OperarioCampo
+    OperarioCampo,
+    Contratista
 }
 
 public static class UserRoleExtensions
@@ -16,6 +17,7 @@ public static class UserRoleExtensions
         UserRole.AdministradorEmpresa => "Administrador de empresa",
         UserRole.IngenieroAgronomo => "Ingeniero agrónomo",
         UserRole.OperarioCampo => "Operario de campo",
+        UserRole.Contratista => "Contratista",
         _ => role.ToString()
     };
 }

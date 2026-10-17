@@ -7,6 +7,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddScoped<DemoAuthService>();
+builder.Services.AddScoped<IUserScope>(sp => sp.GetRequiredService<DemoAuthService>());
 builder.Services.AddScoped<EmpresaService>();
 builder.Services.AddScoped<EstablecimientoService>();
 builder.Services.AddScoped<PotreroService>();

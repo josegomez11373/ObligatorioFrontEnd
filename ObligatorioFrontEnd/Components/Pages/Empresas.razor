@@ -5,23 +5,29 @@
 
 @inject EmpresaService EmpresaService
 @inject NavigationManager Navigation
+@inject DemoAuthService Auth
 
 <PageTitle>Empresas | SIGA</PageTitle>
 
-<RoleGuard Roles="new[] { UserRole.AdministradorGeneral }">
+<RoleGuard Module="SigaModule.Empresas">
     <section class="page-header">
         <div>
-            <p class="eyebrow">BL-02 · Gestión de empresas</p>
+            <p class="eyebrow">Administración</p>
             <h1>Empresas</h1>
             <p class="page-intro">Crear, editar y desactivar empresas. No se borra el historial.</p>
         </div>
-        <div>
+        @if (Auth.CanManage(SigaModule.Empresas))
+        {
+            <div>
             <button class="primary-button" @onclick="NewEmpresa">Nueva empresa</button>
-        </div>
+            </div>
+        }
     </section>
 
     <section class="content-grid">
-        <div class="card">
+         @if (Auth.CanManage(SigaModule.Empresas))
+         {
+         <div class="card">
             <h2>Listado</h2>
             @if (empresas is null)
             {
@@ -56,7 +62,8 @@
                     </tbody>
                 </table>
             }
-        </div>
+         </div>
+         }
 
         <div class="card">
             <h2>@(editModel.Id == Guid.Empty ? "Crear empresa" : "Editar empresa")</h2>
@@ -94,6 +101,11 @@
             {
                 editModel = new EmpresaEditModel { Id = e.Id, Nombre = e.Nombre, Activa = e.Activa };
             }
+        }
+        else
+        {
+            editModel = new EmpresaEditModel();
+            formError = null;
         }
     }
 
@@ -145,8 +157,7 @@
         }
         else
         {
-            var updated = new Empresa { Id = model.Id, Nombre = model.Nombre.Trim(), Activa = model.Activa, CreatedAt = DateTime.UtcNow };
-            EmpresaService.Update(updated);
+            EmpresaService.Update(model.Id, model.Nombre.Trim(), model.Activa);
         }
 
         editModel = new EmpresaEditModel();

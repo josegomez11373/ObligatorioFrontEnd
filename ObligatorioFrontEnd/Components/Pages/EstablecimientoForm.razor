@@ -1,5 +1,6 @@
 @using ObligatorioFrontEnd.Models
 @inject EmpresaService EmpresaService
+@inject IUserScope UserScope
 
 <EditForm Model="Model" OnValidSubmit="HandleValidSubmit">
     <DataAnnotationsValidator />
@@ -7,8 +8,9 @@
 
     <div class="form-field">
         <label for="empresa">Empresa</label>
-        <InputSelect id="empresa" @bind-Value="Model.EmpresaId">
-            @foreach (var org in EmpresaService.GetAll())
+        <InputSelect id="empresa" @bind-Value="Model.EmpresaId" disabled="@(!CanSelectEmpresa)">
+            <option value="@Guid.Empty">Seleccioná una empresa...</option>
+            @foreach (var org in EmpresaService.GetAll().Where(e => e.Activa || e.Id == Model.EmpresaId))
             {
                 <option value="@org.Id">@org.Nombre</option>
             }
@@ -23,6 +25,16 @@
     <div class="form-field">
         <label for="sup">Superficie (ha)</label>
         <InputNumber id="sup" @bind-Value="Model.SuperficieHa" />
+    </div>
+
+    <div class="form-field">
+        <label for="ubicacion">Ubicación</label>
+        <InputText id="ubicacion" @bind-Value="Model.Ubicacion" />
+    </div>
+
+    <div class="form-field">
+        <label for="responsables">Responsables</label>
+        <InputText id="responsables" @bind-Value="Model.Responsables" />
     </div>
 
     <div class="form-field">
@@ -46,6 +58,8 @@
 
     [Parameter]
     public EventCallback OnCancel { get; set; }
+
+    private bool CanSelectEmpresa => UserScope.CurrentUser?.Role == UserRole.AdministradorGeneral;
 
     private Task HandleValidSubmit() => OnValidSubmit.InvokeAsync(Model);
 

@@ -18,17 +18,20 @@ else
 
             <nav class="main-nav" aria-label="Navegación principal">
                 <NavLink href="/" Match="NavLinkMatch.All"><span>▦</span> Resumen</NavLink>
-                @if (Auth.HasAnyRole(UserRole.AdministradorGeneral))
+                @if (Auth.CanView(SigaModule.Empresas))
                 {
                     <NavLink href="/empresas"><span>◫</span> Empresas</NavLink>
                 }
-                @if (Auth.HasAnyRole(UserRole.AdministradorEmpresa, UserRole.IngenieroAgronomo))
+                @if (Auth.CanView(SigaModule.Establecimientos))
                 {
                     <NavLink href="/establecimientos"><span>⌂</span> Establecimientos</NavLink>
                     <NavLink href="/potreros"><span>⛳</span> Potreros</NavLink>
-                    <NavLink href="/campanas"><span>◌</span> Campañas</NavLink>
+                    @if (Auth.CanView(SigaModule.Campanas))
+                    {
+                        <NavLink href="/campanas"><span>◌</span> Campañas</NavLink>
+                    }
                 }
-                @if (Auth.HasAnyRole(UserRole.IngenieroAgronomo, UserRole.OperarioCampo))
+                @if (Auth.CanView(SigaModule.Eventos))
                 {
                     <NavLink href="/eventos"><span>!</span> Eventos</NavLink>
                 }
@@ -50,8 +53,8 @@ else
 }
 
 <div id="blazor-error-ui" data-nosnippet>
-    An unhandled error has occurred.
-    <a href="." class="reload">Reload</a>
+    Ocurrió un error inesperado.
+    <a href="." class="reload">Recargar</a>
     <span class="dismiss">🗙</span>
 </div>
 

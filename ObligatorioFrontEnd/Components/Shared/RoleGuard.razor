@@ -7,10 +7,10 @@
 }
 
 @code {
-    [Parameter, EditorRequired] public UserRole[] Roles { get; set; } = [];
+    [Parameter, EditorRequired] public SigaModule Module { get; set; }
     [Parameter, EditorRequired] public RenderFragment? ChildContent { get; set; }
 
-    private bool IsAllowed => Auth.HasAnyRole(Roles);
+    private bool IsAllowed => Auth.CanView(Module);
 
     protected override void OnInitialized()
     {
