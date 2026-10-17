@@ -32,7 +32,8 @@ public sealed class DemoAuthService : IUserScope
     public bool CanAccessEmpresa(Guid empresaId) => CurrentUser is { } user &&
         (user.EmpresaId is null || user.EmpresaId == empresaId);
 
-    public bool CanAccessEstablecimiento(Guid establecimientoId) => CurrentUser is { } user &&
+    public bool CanAccessEstablecimiento(Guid establecimientoId, Guid empresaId) => CurrentUser is { } user &&
+        CanAccessEmpresa(empresaId) &&
         (user.EmpresaId is null || user.EstablecimientoIds.Count == 0 || user.EstablecimientoIds.Contains(establecimientoId));
 
     public bool CanView(SigaModule module) => CurrentUser is { } user && Permissions.CanView(user.Role, module);

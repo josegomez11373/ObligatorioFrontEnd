@@ -6,7 +6,7 @@ public sealed record Empresa
 {
     public Guid Id { get; init; } = Guid.NewGuid();
     public string Nombre { get; init; } = string.Empty;
-    public bool Activa { get; init; } = true;
+    public bool Activo { get; init; } = true;
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public string? CreatedBy { get; init; }
     public DateTime? UpdatedAt { get; init; }

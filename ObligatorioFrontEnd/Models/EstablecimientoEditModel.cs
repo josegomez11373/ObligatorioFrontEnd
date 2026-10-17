@@ -24,4 +24,5 @@ public sealed class EstablecimientoEditModel
     public string? Responsables { get; set; }
 
     public bool Activo { get; set; } = true;
+    public long Version { get; set; }
 }

@@ -49,10 +49,10 @@
                             <tr>
                                 <td>@e.Nombre</td>
                                 <td>@e.CreatedAt.ToLocalTime().ToString("g")</td>
-                                <td>@(e.Activa ? "Activa" : "Desactivada")</td>
+                                <td>@(e.Activo ? "Activa" : "Desactivada")</td>
                                 <td class="actions">
                                     <button @onclick="() => EditEmpresa(e.Id)">Editar</button>
-                                    @if (e.Activa)
+                                    @if (e.Activo)
                                     {
                                         <button class="destructive" @onclick="() => Deactivate(e.Id)">Desactivar</button>
                                     }
@@ -99,7 +99,7 @@
             var e = EmpresaService.GetById(editId.Value);
             if (e is not null)
             {
-                editModel = new EmpresaEditModel { Id = e.Id, Nombre = e.Nombre, Activa = e.Activa };
+                editModel = new EmpresaEditModel { Id = e.Id, Nombre = e.Nombre, Activo = e.Activo, Version = e.Version };
             }
         }
         else
@@ -157,7 +157,7 @@
         }
         else
         {
-            EmpresaService.Update(model.Id, model.Nombre.Trim(), model.Activa);
+            EmpresaService.Update(model.Id, model.Nombre.Trim(), model.Activo, model.Version);
         }
 
         editModel = new EmpresaEditModel();

@@ -17,11 +17,8 @@ public sealed class PotreroService
     {
         this.establecimientoService = establecimientoService;
         this.userScope = userScope;
-        // Semilla simple: crear un potrero por cada establecimiento existente
-        foreach (var est in establecimientoService.GetAll())
-        {
-            potreros.Add(new Potrero { EstablecimientoId = est.Id, Nombre = $"Potrero de {est.Nombre}", SuperficieHa = Math.Round((est.SuperficieHa ?? 10) / 2, 2) });
-        }
+        potreros.Add(new Potrero { Id = SeedIds.PotreroLaEsperanza, EstablecimientoId = SeedIds.LaEsperanza, Nombre = "Potrero de Establecimiento La Esperanza", SuperficieHa = 60.25, CreatedBy = "seed" });
+        potreros.Add(new Potrero { Id = SeedIds.PotreroElAlto, EstablecimientoId = SeedIds.ElAlto, Nombre = "Potrero de Establecimiento El Alto", SuperficieHa = 42.65, CreatedBy = "seed" });
     }
 
     public IReadOnlyList<Potrero> GetAll() => potreros
@@ -35,24 +32,47 @@ public sealed class PotreroService
         return potrero is not null && establecimientoService.GetById(potrero.EstablecimientoId) is not null ? potrero : null;
     }
 
-    public Potrero Create(Guid establecimientoId, string nombre, double? superficieHa)
+    public Potrero Create(Potrero draft)
     {
         EnsureCanManage();
-        EnsureEstablecimientoAccess(establecimientoId);
-        var p = new Potrero { EstablecimientoId = establecimientoId, Nombre = nombre, SuperficieHa = superficieHa };
+        EnsureEstablecimientoAccess(draft.EstablecimientoId);
+        var p = draft with
+        {
+            Id = draft.Id == Guid.Empty ? Guid.NewGuid() : draft.Id,
+            CreatedAt = DateTime.UtcNow,
+            CreatedBy = userScope.CurrentUser?.Email,
+            UpdatedAt = null,
+            UpdatedBy = null,
+            Version = 1
+        };
         potreros.Add(p);
         StateChanged?.Invoke();
         return p;
     }
 
-    public bool Update(Potrero updated)
+    public bool Update(Potrero updated, long expectedVersion = 0)
     {
         EnsureCanManage();
         var idx = potreros.FindIndex(p => p.Id == updated.Id);
         if (idx < 0) return false;
-        EnsureEstablecimientoAccess(updated.EstablecimientoId);
         var existing = potreros[idx];
-        potreros[idx] = updated with { UpdatedAt = DateTime.UtcNow, Version = existing.Version + 1 };
+        EnsureExistingAccess(existing);
+        EnsureEstablecimientoAccess(updated.EstablecimientoId);
+        if (updated.EstablecimientoId != existing.EstablecimientoId)
+        {
+            throw new InvalidOperationException("El establecimiento de un potrero no se puede cambiar.");
+        }
+        EnsureVersion(existing.Version, expectedVersion);
+        potreros[idx] = existing with
+        {
+            Nombre = updated.Nombre,
+            SuperficieHa = updated.SuperficieHa,
+            Limites = updated.Limites,
+            Activo = updated.Activo,
+            UpdatedAt = DateTime.UtcNow,
+            UpdatedBy = userScope.CurrentUser?.Email,
+            Version = existing.Version + 1
+        };
         StateChanged?.Invoke();
         return true;
     }
@@ -63,10 +83,26 @@ public sealed class PotreroService
         var idx = potreros.FindIndex(p => p.Id == id);
         if (idx < 0) return false;
         var existing = potreros[idx];
-        EnsureEstablecimientoAccess(existing.EstablecimientoId);
-        potreros[idx] = existing with { Activo = false, UpdatedAt = DateTime.UtcNow, Version = existing.Version + 1 };
+        EnsureExistingAccess(existing);
+        potreros[idx] = existing with { Activo = false, UpdatedAt = DateTime.UtcNow, UpdatedBy = userScope.CurrentUser?.Email, Version = existing.Version + 1 };
         StateChanged?.Invoke();
         return true;
+    }
+
+    private void EnsureExistingAccess(Potrero potrero)
+    {
+        if (establecimientoService.GetById(potrero.EstablecimientoId) is null)
+        {
+            throw new InvalidOperationException("No tiene acceso al potrero seleccionado.");
+        }
+    }
+
+    private static void EnsureVersion(long currentVersion, long expectedVersion)
+    {
+        if (expectedVersion != 0 && currentVersion != expectedVersion)
+        {
+            throw new InvalidOperationException("El registro fue modificado por otro usuario. Recargue la información e intente nuevamente.");
+        }
     }
 
     private void EnsureEstablecimientoAccess(Guid establecimientoId)
