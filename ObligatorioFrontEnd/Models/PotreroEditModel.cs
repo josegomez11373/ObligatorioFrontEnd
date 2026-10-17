@@ -17,5 +17,8 @@ public sealed class PotreroEditModel
     [Range(0, 100000, ErrorMessage = "Superficie inválida.")]
     public double? SuperficieHa { get; set; }
 
+    [StringLength(1000, ErrorMessage = "Los límites no pueden superar 1000 caracteres.")]
+    public string? Limites { get; set; }
+
     public bool Activo { get; set; } = true;
 }

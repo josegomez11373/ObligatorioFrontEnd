@@ -6,21 +6,25 @@
 @inject PotreroService PotreroService
 @inject EstablecimientoService EstablecimientoService
 @inject NavigationManager Navigation
+@inject DemoAuthService Auth
 
 @using ObligatorioFrontEnd.Models
 
 <PageTitle>Potreros | SIGA</PageTitle>
 
-<RoleGuard Roles="new[] { UserRole.AdministradorEmpresa, UserRole.IngenieroAgronomo }">
+<RoleGuard Module="SigaModule.Potreros">
     <section class="page-header">
         <div>
-            <p class="eyebrow">BL-04 · Gestión de potreros</p>
+            <p class="eyebrow">Estructura agrícola</p>
             <h1>Potreros</h1>
             <p class="page-intro">Crear y consultar potreros de un establecimiento; la desactivación conserva historial.</p>
         </div>
+        @if (Auth.CanManage(SigaModule.Potreros))
+        {
         <div>
             <button class="primary-button" @onclick="NewPotrero">Nuevo potrero</button>
         </div>
+        }
     </section>
 
     <section class="content-grid">
@@ -49,10 +53,13 @@
                                 <td>@(p.SuperficieHa?.ToString("G") ?? "—")</td>
                                 <td>@(p.Activo ? "Activo" : "Desactivado")</td>
                                 <td class="actions">
-                                    <button @onclick="() => EditPotrero(p.Id)">Editar</button>
-                                    @if (p.Activo)
+                                     @if (Auth.CanManage(SigaModule.Potreros))
                                     {
-                                        <button class="destructive" @onclick="() => Deactivate(p.Id)">Desactivar</button>
+                                         <button @onclick="() => EditPotrero(p.Id)">Editar</button>
+                                         @if (p.Activo)
+                                         {
+                                             <button class="destructive" @onclick="() => Deactivate(p.Id)">Desactivar</button>
+                                         }
                                     }
                                 </td>
                             </tr>
@@ -62,6 +69,8 @@
             }
         </div>
 
+        @if (Auth.CanManage(SigaModule.Potreros))
+        {
         <div class="card">
             <h2>@(editModel.Id == Guid.Empty ? "Crear potrero" : "Editar potrero")</h2>
             <PotreroForm Model="editModel" OnValidSubmit="HandleFormSubmit" OnCancel="Cancel" />
@@ -70,6 +79,7 @@
                 <p class="form-error">@formError</p>
             }
         </div>
+        }
     </section>
 </RoleGuard>
 
@@ -94,8 +104,13 @@
             var p = PotreroService.GetById(editId.Value);
             if (p is not null)
             {
-                editModel = new PotreroEditModel { Id = p.Id, EstablecimientoId = p.EstablecimientoId, Nombre = p.Nombre, SuperficieHa = p.SuperficieHa, Activo = p.Activo };
+                editModel = new PotreroEditModel { Id = p.Id, EstablecimientoId = p.EstablecimientoId, Nombre = p.Nombre, SuperficieHa = p.SuperficieHa, Limites = p.Limites, Activo = p.Activo };
             }
+        }
+        else
+        {
+            editModel = new PotreroEditModel();
+            formError = null;
         }
     }
 
@@ -131,6 +146,12 @@
     private void HandleFormSubmit(PotreroEditModel model)
     {
         formError = null;
+        if (model.EstablecimientoId == Guid.Empty)
+        {
+            formError = "Debe seleccionar un establecimiento.";
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(model.Nombre))
         {
             formError = "El nombre es obligatorio.";
@@ -143,7 +164,7 @@
         }
         else
         {
-            var updated = new Potrero { Id = model.Id, EstablecimientoId = model.EstablecimientoId, Nombre = model.Nombre.Trim(), SuperficieHa = model.SuperficieHa, Activo = model.Activo };
+            var updated = new Potrero { Id = model.Id, EstablecimientoId = model.EstablecimientoId, Nombre = model.Nombre.Trim(), SuperficieHa = model.SuperficieHa, Limites = model.Limites?.Trim(), Activo = model.Activo };
             PotreroService.Update(updated);
         }
 

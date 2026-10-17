@@ -5,7 +5,7 @@
 
 <section class="page-header">
     <div>
-        <p class="eyebrow">@Auth.CurrentUser?.Scope</p>
+    <p class="eyebrow">@Auth.CurrentUser?.ScopeLabel</p>
         <h1>Buen día, @Auth.CurrentUser?.Name?.Split(' ')[0]</h1>
         <p class="page-intro">Esta es la base inicial de SIGA. Desde aquí se organizará el trabajo de cada campaña.</p>
     </div>
@@ -15,7 +15,7 @@
 <section class="next-step" aria-labelledby="next-step-title">
     <p class="eyebrow">Primer flujo</p>
     <h2 id="next-step-title">La estructura está preparada</h2>
-    <p>El siguiente módulo será la gestión de empresas, establecimientos, potreros y campañas. Después incorporaremos el registro de eventos y sus fotografías.</p>
+    <p>La estructura agrícola ya está disponible. El siguiente objetivo es completar campañas, eventos, fotografías e historial.</p>
 </section>
 
 <section class="dashboard-grid" aria-label="Estado del proyecto">
@@ -28,8 +28,8 @@
     <article>
         <span class="status-icon">2</span>
         <h2>Estructura agrícola</h2>
-        <p>Empresas, establecimientos, potreros y campañas.</p>
-        <span class="status-next">Siguiente</span>
+        <p>Empresas, establecimientos y potreros con alcance por empresa.</p>
+        <span class="status-ready">Disponible</span>
     </article>
     <article>
         <span class="status-icon">3</span>

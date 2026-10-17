@@ -6,21 +6,25 @@
 @inject EstablecimientoService EstablecimientoService
 @inject EmpresaService EmpresaService
 @inject NavigationManager Navigation
+@inject DemoAuthService Auth
 
 @using ObligatorioFrontEnd.Models
 
 <PageTitle>Establecimientos | SIGA</PageTitle>
 
-<RoleGuard Roles="new[] { UserRole.AdministradorEmpresa, UserRole.IngenieroAgronomo }">
+<RoleGuard Module="SigaModule.Establecimientos">
     <section class="page-header">
         <div>
-            <p class="eyebrow">BL-03 · Gestión de establecimientos</p>
+            <p class="eyebrow">Estructura agrícola</p>
             <h1>Establecimientos</h1>
             <p class="page-intro">Crear, editar y desactivar establecimientos pertenecientes a una empresa.</p>
         </div>
+        @if (Auth.CanManage(SigaModule.Establecimientos))
+        {
         <div>
             <button class="primary-button" @onclick="NewEstablecimiento">Nuevo establecimiento</button>
         </div>
+        }
     </section>
 
     <section class="content-grid">
@@ -49,10 +53,13 @@
                                 <td>@(s.SuperficieHa?.ToString("G") ?? "—")</td>
                                 <td>@(s.Activo ? "Activo" : "Desactivado")</td>
                                 <td class="actions">
-                                    <button @onclick="() => EditEstablecimiento(s.Id)">Editar</button>
-                                    @if (s.Activo)
+                                     @if (Auth.CanManage(SigaModule.Establecimientos))
                                     {
-                                        <button class="destructive" @onclick="() => Deactivate(s.Id)">Desactivar</button>
+                                         <button @onclick="() => EditEstablecimiento(s.Id)">Editar</button>
+                                         @if (s.Activo)
+                                         {
+                                             <button class="destructive" @onclick="() => Deactivate(s.Id)">Desactivar</button>
+                                         }
                                     }
                                 </td>
                             </tr>
@@ -62,6 +69,8 @@
             }
         </div>
 
+        @if (Auth.CanManage(SigaModule.Establecimientos))
+        {
         <div class="card">
             <h2>@(editModel.Id == Guid.Empty ? "Crear establecimiento" : "Editar establecimiento")</h2>
             <EstablecimientoForm Model="editModel" OnValidSubmit="HandleFormSubmit" OnCancel="Cancel" />
@@ -70,6 +79,7 @@
                 <p class="form-error">@formError</p>
             }
         </div>
+        }
     </section>
 </RoleGuard>
 
@@ -94,8 +104,13 @@
             var s = EstablecimientoService.GetById(editId.Value);
             if (s is not null)
             {
-                editModel = new EstablecimientoEditModel { Id = s.Id, EmpresaId = s.EmpresaId, Nombre = s.Nombre, SuperficieHa = s.SuperficieHa, Activo = s.Activo };
+                editModel = new EstablecimientoEditModel { Id = s.Id, EmpresaId = s.EmpresaId, Nombre = s.Nombre, SuperficieHa = s.SuperficieHa, Ubicacion = s.Ubicacion, Responsables = s.Responsables, Activo = s.Activo };
             }
+        }
+        else
+        {
+            editModel = new EstablecimientoEditModel { EmpresaId = Auth.CurrentUser?.EmpresaId ?? Guid.Empty };
+            formError = null;
         }
     }
 
@@ -131,6 +146,12 @@
     private void HandleFormSubmit(EstablecimientoEditModel model)
     {
         formError = null;
+        if (model.EmpresaId == Guid.Empty)
+        {
+            formError = "Debe seleccionar una empresa.";
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(model.Nombre))
         {
             formError = "El nombre es obligatorio.";
@@ -143,7 +164,7 @@
         }
         else
         {
-            var updated = new Establecimiento { Id = model.Id, EmpresaId = model.EmpresaId, Nombre = model.Nombre.Trim(), SuperficieHa = model.SuperficieHa, Activo = model.Activo };
+            var updated = new Establecimiento { Id = model.Id, EmpresaId = model.EmpresaId, Nombre = model.Nombre.Trim(), SuperficieHa = model.SuperficieHa, Ubicacion = model.Ubicacion?.Trim(), Responsables = model.Responsables?.Trim(), Activo = model.Activo };
             EstablecimientoService.Update(updated);
         }
 

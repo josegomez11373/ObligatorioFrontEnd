@@ -17,5 +17,11 @@ public sealed class EstablecimientoEditModel
     [Range(0, 100000, ErrorMessage = "Superficie inválida.")]
     public double? SuperficieHa { get; set; }
 
+    [StringLength(200, ErrorMessage = "La ubicación no puede superar 200 caracteres.")]
+    public string? Ubicacion { get; set; }
+
+    [StringLength(500, ErrorMessage = "Los responsables no pueden superar 500 caracteres.")]
+    public string? Responsables { get; set; }
+
     public bool Activo { get; set; } = true;
 }
