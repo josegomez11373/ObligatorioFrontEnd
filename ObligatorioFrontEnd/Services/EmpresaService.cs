@@ -10,8 +10,8 @@ public sealed class EmpresaService
     private readonly IUserScope userScope;
     private readonly List<Empresa> empresas = new()
     {
-        new Empresa { Id = SeedIds.AgroDelSur, Nombre = "Agro del Sur" },
-        new Empresa { Id = SeedIds.CamposVerdes, Nombre = "Campos Verdes" },
+        new Empresa { Id = SeedIds.AgroDelSur, Nombre = "Agro del Sur", CreatedBy = "seed" },
+        new Empresa { Id = SeedIds.CamposVerdes, Nombre = "Campos Verdes", CreatedBy = "seed" },
     };
 
     public EmpresaService(IUserScope userScope) => this.userScope = userScope;
@@ -30,23 +30,26 @@ public sealed class EmpresaService
     public Empresa Create(string nombre)
     {
         EnsureCanManage();
-        var emp = new Empresa { Nombre = nombre };
+        var emp = new Empresa { Nombre = nombre, CreatedBy = userScope.CurrentUser?.Email };
         empresas.Add(emp);
         StateChanged?.Invoke();
         return emp;
     }
 
-    public bool Update(Guid id, string nombre, bool activa)
+    public bool Update(Guid id, string nombre, bool activo, long expectedVersion = 0)
     {
         EnsureCanManage();
         var idx = empresas.FindIndex(e => e.Id == id);
         if (idx < 0) return false;
         var existing = empresas[idx];
+        EnsureEmpresaAccess(existing.Id);
+        EnsureVersion(existing.Version, expectedVersion);
         empresas[idx] = existing with
         {
             Nombre = nombre,
-            Activa = activa,
+            Activo = activo,
             UpdatedAt = DateTime.UtcNow,
+            UpdatedBy = userScope.CurrentUser?.Email,
             Version = existing.Version + 1
         };
         StateChanged?.Invoke();
@@ -59,7 +62,8 @@ public sealed class EmpresaService
         var idx = empresas.FindIndex(e => e.Id == id);
         if (idx < 0) return false;
         var existing = empresas[idx];
-        empresas[idx] = existing with { Activa = false, UpdatedAt = DateTime.UtcNow, Version = existing.Version + 1 };
+        EnsureEmpresaAccess(existing.Id);
+        empresas[idx] = existing with { Activo = false, UpdatedAt = DateTime.UtcNow, UpdatedBy = userScope.CurrentUser?.Email, Version = existing.Version + 1 };
         StateChanged?.Invoke();
         return true;
     }
@@ -70,5 +74,21 @@ public sealed class EmpresaService
         {
             throw new InvalidOperationException("No tiene permisos para gestionar empresas.");
         }
+    }
+
+    private void EnsureEmpresaAccess(Guid empresaId)
+    {
+        if (!userScope.CanAccessEmpresa(empresaId))
+        {
+            throw new InvalidOperationException("No tiene acceso a la empresa seleccionada.");
+        }
+    }
+
+    private static void EnsureVersion(long currentVersion, long expectedVersion)
+    {
+        if (expectedVersion != 0 && currentVersion != expectedVersion)
+        {
+            throw new InvalidOperationException("El registro fue modificado por otro usuario. Recargue la información e intente nuevamente.");
+    }
     }
 }

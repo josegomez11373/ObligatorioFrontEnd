@@ -11,5 +11,6 @@ public sealed class EmpresaEditModel
     [StringLength(100, ErrorMessage = "El nombre no puede superar 100 caracteres.")]
     public string Nombre { get; set; } = string.Empty;
 
-    public bool Activa { get; set; } = true;
+    public bool Activo { get; set; } = true;
+    public long Version { get; set; }
 }

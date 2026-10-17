@@ -104,7 +104,7 @@
             var p = PotreroService.GetById(editId.Value);
             if (p is not null)
             {
-                editModel = new PotreroEditModel { Id = p.Id, EstablecimientoId = p.EstablecimientoId, Nombre = p.Nombre, SuperficieHa = p.SuperficieHa, Limites = p.Limites, Activo = p.Activo };
+                editModel = new PotreroEditModel { Id = p.Id, EstablecimientoId = p.EstablecimientoId, Nombre = p.Nombre, SuperficieHa = p.SuperficieHa, Limites = p.Limites, Activo = p.Activo, Version = p.Version };
             }
         }
         else
@@ -160,12 +160,19 @@
 
         if (model.Id == Guid.Empty)
         {
-            PotreroService.Create(model.EstablecimientoId, model.Nombre.Trim(), model.SuperficieHa);
+            PotreroService.Create(new Potrero
+            {
+                EstablecimientoId = model.EstablecimientoId,
+                Nombre = model.Nombre.Trim(),
+                SuperficieHa = model.SuperficieHa,
+                Limites = model.Limites?.Trim(),
+                Activo = model.Activo
+            });
         }
         else
         {
             var updated = new Potrero { Id = model.Id, EstablecimientoId = model.EstablecimientoId, Nombre = model.Nombre.Trim(), SuperficieHa = model.SuperficieHa, Limites = model.Limites?.Trim(), Activo = model.Activo };
-            PotreroService.Update(updated);
+            PotreroService.Update(updated, model.Version);
         }
 
         editModel = new PotreroEditModel();

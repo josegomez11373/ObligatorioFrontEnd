@@ -8,7 +8,8 @@ public enum SigaModule
     Establecimientos,
     Potreros,
     Campanas,
-    Eventos
+    Eventos,
+    Tareas
 }
 
 public static class Permissions
@@ -18,8 +19,9 @@ public static class Permissions
         SigaModule.Empresas => role == UserRole.AdministradorGeneral,
         SigaModule.Establecimientos => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa or UserRole.IngenieroAgronomo or UserRole.OperarioCampo,
         SigaModule.Potreros => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa or UserRole.IngenieroAgronomo or UserRole.OperarioCampo,
-        SigaModule.Campanas => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa or UserRole.IngenieroAgronomo,
-        SigaModule.Eventos => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa or UserRole.IngenieroAgronomo or UserRole.OperarioCampo or UserRole.Contratista,
+        SigaModule.Campanas => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa or UserRole.IngenieroAgronomo or UserRole.OperarioCampo,
+        SigaModule.Eventos => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa or UserRole.IngenieroAgronomo or UserRole.OperarioCampo,
+        SigaModule.Tareas => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa or UserRole.IngenieroAgronomo or UserRole.OperarioCampo or UserRole.Contratista,
         _ => false
     };
 
@@ -30,6 +32,7 @@ public static class Permissions
         SigaModule.Potreros => role == UserRole.AdministradorEmpresa,
         SigaModule.Campanas => role is UserRole.AdministradorEmpresa or UserRole.IngenieroAgronomo,
         SigaModule.Eventos => role is UserRole.IngenieroAgronomo or UserRole.OperarioCampo,
+        SigaModule.Tareas => role is UserRole.AdministradorEmpresa or UserRole.IngenieroAgronomo or UserRole.OperarioCampo or UserRole.Contratista,
         _ => false
     };
 }

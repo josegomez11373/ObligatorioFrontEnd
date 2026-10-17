@@ -104,12 +104,12 @@
             var s = EstablecimientoService.GetById(editId.Value);
             if (s is not null)
             {
-                editModel = new EstablecimientoEditModel { Id = s.Id, EmpresaId = s.EmpresaId, Nombre = s.Nombre, SuperficieHa = s.SuperficieHa, Ubicacion = s.Ubicacion, Responsables = s.Responsables, Activo = s.Activo };
+                editModel = new EstablecimientoEditModel { Id = s.Id, EmpresaId = s.EmpresaId, Nombre = s.Nombre, SuperficieHa = s.SuperficieHa, Ubicacion = s.Ubicacion, Responsables = s.Responsables, Activo = s.Activo, Version = s.Version };
             }
         }
         else
         {
-            editModel = new EstablecimientoEditModel { EmpresaId = Auth.CurrentUser?.EmpresaId ?? Guid.Empty };
+            editModel = NewModel();
             formError = null;
         }
     }
@@ -127,7 +127,7 @@
 
     private void NewEstablecimiento()
     {
-        editModel = new EstablecimientoEditModel();
+        editModel = NewModel();
         Navigation.NavigateTo("/establecimientos", replace: true);
     }
 
@@ -138,7 +138,7 @@
 
     private void Cancel()
     {
-        editModel = new EstablecimientoEditModel();
+        editModel = NewModel();
         formError = null;
         Navigation.NavigateTo("/establecimientos", replace: true);
     }
@@ -160,15 +160,23 @@
 
         if (model.Id == Guid.Empty)
         {
-            EstablecimientoService.Create(model.EmpresaId, model.Nombre.Trim(), model.SuperficieHa);
+            EstablecimientoService.Create(new Establecimiento
+            {
+                EmpresaId = model.EmpresaId,
+                Nombre = model.Nombre.Trim(),
+                SuperficieHa = model.SuperficieHa,
+                Ubicacion = model.Ubicacion?.Trim(),
+                Responsables = model.Responsables?.Trim(),
+                Activo = model.Activo
+            });
         }
         else
         {
             var updated = new Establecimiento { Id = model.Id, EmpresaId = model.EmpresaId, Nombre = model.Nombre.Trim(), SuperficieHa = model.SuperficieHa, Ubicacion = model.Ubicacion?.Trim(), Responsables = model.Responsables?.Trim(), Activo = model.Activo };
-            EstablecimientoService.Update(updated);
+            EstablecimientoService.Update(updated, model.Version);
         }
 
-        editModel = new EstablecimientoEditModel();
+        editModel = NewModel();
         Navigation.NavigateTo("/establecimientos", replace: true);
     }
 
@@ -176,6 +184,11 @@
     {
         EstablecimientoService.Deactivate(id);
     }
+
+    private EstablecimientoEditModel NewModel() => new()
+    {
+        EmpresaId = Auth.CurrentUser?.EmpresaId ?? Guid.Empty
+    };
 
     public void Dispose() => EstablecimientoService.StateChanged -= HandleChanged;
 }

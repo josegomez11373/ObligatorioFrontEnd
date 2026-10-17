@@ -21,4 +21,5 @@ public sealed class PotreroEditModel
     public string? Limites { get; set; }
 
     public bool Activo { get; set; } = true;
+    public long Version { get; set; }
 }

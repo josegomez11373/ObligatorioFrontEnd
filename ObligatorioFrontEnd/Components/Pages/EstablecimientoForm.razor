@@ -10,7 +10,7 @@
         <label for="empresa">Empresa</label>
         <InputSelect id="empresa" @bind-Value="Model.EmpresaId" disabled="@(!CanSelectEmpresa)">
             <option value="@Guid.Empty">Seleccioná una empresa...</option>
-            @foreach (var org in EmpresaService.GetAll().Where(e => e.Activa || e.Id == Model.EmpresaId))
+            @foreach (var org in EmpresaService.GetAll().Where(e => e.Activo || e.Id == Model.EmpresaId))
             {
                 <option value="@org.Id">@org.Nombre</option>
             }

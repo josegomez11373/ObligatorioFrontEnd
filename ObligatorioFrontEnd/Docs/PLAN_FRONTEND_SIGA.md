@@ -19,7 +19,7 @@ Orden de las fases: **0 → 1 → 2 → 3** son correcciones y alineación (ráp
   - Hacer: agregar la opción «Seleccioná…» (`value="@Guid.Empty"`) y validar `!= Guid.Empty` (atributo propio o validación en el submit).
   - Terminado cuando: no se puede guardar un establecimiento ni un potrero sin elegir el padre.
 - [x] **Editar una empresa pisa `CreatedAt`.** En `Empresas.razor`, `HandleFormSubmit` crea `new Empresa { ..., CreatedAt = DateTime.UtcNow }`.
-  - Hacer: `existing with { Nombre = ..., Activa = ... }` y mover esa lógica al servicio (`EmpresaService.Update(id, nombre, activa)`).
+	- Hacer: `existing with { Nombre = ..., Activo = ... }` y mover esa lógica al servicio (`EmpresaService.Update(id, nombre, activo)`).
 - [x] **Formulario con datos viejos al volver a `/potreros`, `/empresas`, `/establecimientos`.** `OnParametersSet` solo carga el modelo si hay `editId`.
   - Hacer: en el `else`, reiniciar `editModel = new()`.
 - [x] **Los desplegables ofrecen elementos desactivados.** Empresas inactivas en `EstablecimientoForm`; establecimientos inactivos en `PotreroForm`.
@@ -56,7 +56,7 @@ Es la regla de seguridad más importante y hoy no se cumple: un administrador de
   | `contratista@siga.demo` (**nuevo**) | Contratista | Agro del Sur | — |
 
   El segundo administrador permite demostrar el aislamiento: dos usuarios, dos empresas, datos distintos.
-- [x] **`IUserScope`** con `CanAccessEmpresa(id)` y `CanAccessEstablecimiento(id)`, implementado por `DemoAuthService` y registrado en `Program.cs`.
+- [x] **`IUserScope`** con `CanAccessEmpresa(id)` y `CanAccessEstablecimiento(id, empresaId)`, implementado por `DemoAuthService` y registrado en `Program.cs`.
 - [x] **Filtrar en los servicios, no en las páginas.**
   - `GetAll()` y `GetById()` devuelven solo lo que el alcance permite.
   - `Create` y `Update` rechazan un `EmpresaId` o `EstablecimientoId` fuera del alcance.
@@ -90,12 +90,15 @@ Hoy los permisos del código no coinciden con la matriz.
 | El ingeniero puede crear y desactivar establecimientos y potreros. | Solo consulta. |
 | El administrador general no ve establecimientos ni potreros. | Los consulta. |
 | El administrador de empresa no ve eventos. | Los consulta. |
+| El contratista ve eventos y no tiene tareas. | No ve eventos; consulta y ejecuta tareas según su alcance. |
+| El operario no ve campañas. | Las consulta. |
 | No existe pantalla de usuarios. | Ver fase 4. |
 
 - [x] Centralizar los permisos en un solo lugar (por ejemplo `Permissions.cs` con `CanManage(role, módulo)` y `CanView(role, módulo)`) en vez de listas de roles repetidas en cada `RoleGuard` y en el menú.
 - [x] `RoleGuard` y `MainLayout` leen de ese lugar.
 - [x] Los servicios también validan (no solo la interfaz).
 - [x] Un usuario con rol de solo consulta ve los listados sin los botones de crear, editar y desactivar.
+- [x] El contratista no ve Eventos y dispone del módulo Tareas; el operario puede consultar Campañas.
 
 ---
 

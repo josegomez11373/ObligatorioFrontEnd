@@ -35,6 +35,10 @@ else
                 {
                     <NavLink href="/eventos"><span>!</span> Eventos</NavLink>
                 }
+                @if (Auth.CanView(SigaModule.Tareas))
+                {
+                    <NavLink href="/tareas"><span>✓</span> Tareas</NavLink>
+                }
             </nav>
 
             <div class="sidebar-footer">
