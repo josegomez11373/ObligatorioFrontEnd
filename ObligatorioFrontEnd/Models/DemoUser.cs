@@ -1,6 +1,7 @@
 namespace ObligatorioFrontEnd.Models;
 
 public sealed record DemoUser(
+    Guid Id,
     string Email,
     string Name,
     UserRole Role,

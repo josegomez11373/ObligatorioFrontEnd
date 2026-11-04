@@ -9,14 +9,14 @@ public sealed class DemoAuthService : IUserScope
 {
     private const string DemoPassword = "siga2026";
 
-    private static readonly IReadOnlyList<DemoUser> DemoUsers =
+    private readonly List<Usuario> usuarios =
     [
-        new("admin@siga.demo", "Lucía Pereira", UserRole.AdministradorGeneral, null, [], "Toda la plataforma"),
-        new("empresa@siga.demo", "Martín Silva", UserRole.AdministradorEmpresa, SeedIds.AgroDelSur, [], "Agro del Sur"),
-        new("ingeniero@siga.demo", "Valentina Costa", UserRole.IngenieroAgronomo, SeedIds.AgroDelSur, [], "Agro del Sur"),
-        new("operario@siga.demo", "Diego Rodríguez", UserRole.OperarioCampo, SeedIds.AgroDelSur, [SeedIds.LaEsperanza], "Establecimiento La Esperanza"),
-        new("empresa2@siga.demo", "Sofía Méndez", UserRole.AdministradorEmpresa, SeedIds.CamposVerdes, [], "Campos Verdes"),
-        new("contratista@siga.demo", "Nicolás Torres", UserRole.Contratista, SeedIds.AgroDelSur, [], "Agro del Sur")
+        new() { Id = SeedIds.UsuarioAdmin, Email = "admin@siga.demo", Nombre = "Lucía Pereira", Rol = UserRole.AdministradorGeneral },
+        new() { Id = SeedIds.UsuarioEmpresa, Email = "empresa@siga.demo", Nombre = "Martín Silva", Rol = UserRole.AdministradorEmpresa, EmpresaId = SeedIds.AgroDelSur },
+        new() { Id = SeedIds.UsuarioIngeniero, Email = "ingeniero@siga.demo", Nombre = "Valentina Costa", Rol = UserRole.IngenieroAgronomo, EmpresaId = SeedIds.AgroDelSur },
+        new() { Id = SeedIds.UsuarioOperario, Email = "operario@siga.demo", Nombre = "Diego Rodríguez", Rol = UserRole.OperarioCampo, EmpresaId = SeedIds.AgroDelSur, EstablecimientoIds = [SeedIds.LaEsperanza] },
+        new() { Id = SeedIds.UsuarioEmpresa2, Email = "empresa2@siga.demo", Nombre = "Sofía Méndez", Rol = UserRole.AdministradorEmpresa, EmpresaId = SeedIds.CamposVerdes },
+        new() { Id = SeedIds.UsuarioContratista, Email = "contratista@siga.demo", Nombre = "Nicolás Torres", Rol = UserRole.Contratista, EmpresaId = SeedIds.AgroDelSur }
     ];
 
     public event Action? StateChanged;
@@ -25,7 +25,8 @@ public sealed class DemoAuthService : IUserScope
 
     public bool IsAuthenticated => CurrentUser is not null;
 
-    public IReadOnlyList<DemoUser> Users => DemoUsers;
+    public IReadOnlyList<DemoUser> Users => usuarios.Where(u => u.Activo).Select(ToDemoUser).ToList();
+    public IReadOnlyList<Usuario> UserRecords => usuarios;
 
     public string ScopeLabel => CurrentUser?.ScopeLabel ?? string.Empty;
 
@@ -42,13 +43,13 @@ public sealed class DemoAuthService : IUserScope
 
     public bool Login(string email, string password)
     {
-        var user = DemoUsers.SingleOrDefault(candidate => candidate.Email.Equals(email, StringComparison.OrdinalIgnoreCase));
+        var user = usuarios.FirstOrDefault(candidate => candidate.Activo && candidate.Email.Equals(email, StringComparison.OrdinalIgnoreCase));
         if (user is null || password != DemoPassword)
         {
             return false;
         }
 
-        CurrentUser = user;
+        CurrentUser = ToDemoUser(user);
         StateChanged?.Invoke();
         return true;
     }
@@ -59,5 +60,31 @@ public sealed class DemoAuthService : IUserScope
     {
         CurrentUser = null;
         StateChanged?.Invoke();
+    }
+
+    internal void AddUser(Usuario user) => usuarios.Add(user);
+
+    internal bool ReplaceUser(Usuario user)
+    {
+        var index = usuarios.FindIndex(candidate => candidate.Id == user.Id);
+        if (index < 0) return false;
+        usuarios[index] = user;
+        if (CurrentUser is { } current && current.Id == user.Id)
+        {
+            CurrentUser = ToDemoUser(user);
+        }
+        return true;
+    }
+
+    internal Usuario? FindById(Guid id) => usuarios.SingleOrDefault(user => user.Id == id);
+
+    private static DemoUser ToDemoUser(Usuario user)
+    {
+        var scope = user.EmpresaId is null
+            ? "Toda la plataforma"
+            : user.EstablecimientoIds.Count == 0
+                ? (user.EmpresaId == SeedIds.AgroDelSur ? "Agro del Sur" : "Campos Verdes")
+                : "Establecimiento La Esperanza";
+        return new DemoUser(user.Id, user.Email, user.Nombre, user.Rol, user.EmpresaId, user.EstablecimientoIds, scope);
     }
 }

@@ -1,0 +1,189 @@
+@page "/auditoria"
+@implements IDisposable
+@inject AuditService AuditService
+@inject EmpresaService EmpresaService
+
+<PageTitle>Auditoría | SIGA</PageTitle>
+
+<RoleGuard Module="SigaModule.Auditoria">
+    <section class="page-header">
+        <div>
+            <p class="eyebrow">Control y trazabilidad</p>
+            <h1>Auditoría</h1>
+            <p class="page-intro">Registro de cambios realizados dentro del alcance actual. Las fechas se muestran en hora de Uruguay.</p>
+        </div>
+    </section>
+
+    <section class="card report-filters">
+        <div class="card-header">
+            <div>
+                <p class="eyebrow">Búsqueda</p>
+                <h2>Filtrar registros</h2>
+            </div>
+        </div>
+        <div class="filter-row">
+            <div class="form-field compact-field">
+                <label for="aud-entidad">Entidad</label>
+                <select id="aud-entidad" @bind="entidadFiltro">
+                    <option value="">Todas</option>
+                    @foreach (var entidad in entidades)
+                    {
+                        <option value="@entidad">@entidad</option>
+                    }
+                </select>
+            </div>
+            <div class="form-field compact-field">
+                <label for="aud-actor">Actor</label>
+                <select id="aud-actor" @bind="actorFiltro">
+                    <option value="">Todos</option>
+                    @foreach (var actor in actores)
+                    {
+                        <option value="@actor">@actor</option>
+                    }
+                </select>
+            </div>
+            <div class="form-field compact-field">
+                <label for="aud-empresa">Empresa</label>
+                <select id="aud-empresa" @bind="empresaFiltro">
+                    <option value="">Todas</option>
+                    @foreach (var empresa in EmpresaService.GetAll())
+                    {
+                        <option value="@empresa.Id">@empresa.Nombre</option>
+                    }
+                </select>
+            </div>
+        </div>
+        <div class="filter-row">
+            <div class="form-field compact-field">
+                <label for="aud-desde">Desde</label>
+                <InputDate id="aud-desde" @bind-Value="desde" />
+            </div>
+            <div class="form-field compact-field">
+                <label for="aud-hasta">Hasta</label>
+                <InputDate id="aud-hasta" @bind-Value="hasta" />
+            </div>
+            <div class="form-field compact-field filter-actions">
+                <label aria-hidden="true">&nbsp;</label>
+                <div class="form-actions">
+                    <button class="primary-button primary-button--inline" type="button" @onclick="Buscar">Aplicar filtros</button>
+                    <button type="button" @onclick="Limpiar">Limpiar</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="card-header">
+            <h2>Registros (@entries.Count)</h2>
+            <span class="muted">Actualizado: @SigaTime.Format(SigaTime.UtcNow)</span>
+        </div>
+
+        @if (!entries.Any())
+        {
+            <p class="muted">No hay registros que coincidan con los filtros.</p>
+        }
+        else
+        {
+            <table class="table">
+                <thead>
+                    <tr><th>Fecha</th><th>Actor</th><th>Entidad</th><th>Acción</th><th>Empresa</th><th>Detalle</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var entry in entries)
+                    {
+                        <tr>
+                            <td>@SigaTime.Format(entry.FechaUtc)</td>
+                            <td>@entry.Actor</td>
+                            <td>@entry.Entidad</td>
+                            <td>@entry.Accion</td>
+                            <td>@(entry.EmpresaId is Guid empresaId ? EmpresaService.GetById(empresaId)?.Nombre ?? "—" : "—")</td>
+                            <td>
+                                @if (!string.IsNullOrWhiteSpace(entry.Antes) || !string.IsNullOrWhiteSpace(entry.Despues))
+                                {
+                                    <details>
+                                        <summary>Ver</summary>
+                                        <pre class="audit-detail">@Detalle(entry)</pre>
+                                    </details>
+                                }
+                                else
+                                {
+                                    <span class="muted">—</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </section>
+</RoleGuard>
+
+@code {
+    private IReadOnlyList<AuditEntry> entries = [];
+    private IReadOnlyList<string> entidades = [];
+    private IReadOnlyList<string> actores = [];
+    private string entidadFiltro = string.Empty;
+    private string actorFiltro = string.Empty;
+    private string empresaFiltro = string.Empty;
+    private DateTime? desde;
+    private DateTime? hasta;
+
+    protected override void OnInitialized()
+    {
+        AuditService.StateChanged += Reload;
+        CargarOpciones();
+        Buscar();
+    }
+
+    private void Reload()
+    {
+        CargarOpciones();
+        Buscar();
+    }
+
+    private void CargarOpciones()
+    {
+        entidades = AuditService.GetEntidades();
+        actores = AuditService.GetActores();
+    }
+
+    private void Buscar()
+    {
+        entries = AuditService.Search(
+            entidadFiltro,
+            actorFiltro,
+            desde,
+            hasta,
+            Guid.TryParse(empresaFiltro, out var empresaId) ? empresaId : null);
+
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void Limpiar()
+    {
+        entidadFiltro = string.Empty;
+        actorFiltro = string.Empty;
+        empresaFiltro = string.Empty;
+        desde = null;
+        hasta = null;
+        Buscar();
+    }
+
+    private static string Detalle(AuditEntry entry)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(entry.Antes))
+        {
+            parts.Add($"Antes: {entry.Antes}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(entry.Despues))
+        {
+            parts.Add($"Después: {entry.Despues}");
+        }
+
+        return string.Join(Environment.NewLine, parts);
+    }
+
+    public void Dispose() => AuditService.StateChanged -= Reload;
+}

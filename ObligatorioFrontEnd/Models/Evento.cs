@@ -14,7 +14,9 @@ public sealed record Evento
     public double? Latitud { get; init; }
     public double? Longitud { get; init; }
     public string? RegistradoPor { get; init; }
+    public Guid? RegistradoPorId { get; init; }
     public EventoEstado Estado { get; init; } = EventoEstado.Registrado;
+    public string? MotivoAnulacion { get; init; }
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public string? CreatedBy { get; init; }
     public DateTime? UpdatedAt { get; init; }

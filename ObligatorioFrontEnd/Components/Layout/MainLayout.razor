@@ -35,9 +35,30 @@ else
                 {
                     <NavLink href="/eventos"><span>!</span> Eventos</NavLink>
                 }
+                @if (Auth.CanView(SigaModule.Historial))
+                {
+                    <NavLink href="/historial"><span>◷</span> Historial</NavLink>
+                }
                 @if (Auth.CanView(SigaModule.Tareas))
                 {
                     <NavLink href="/tareas"><span>✓</span> Tareas</NavLink>
+                }
+                @if (Auth.CanView(SigaModule.Catalogos))
+                {
+                    <NavLink href="/cultivos"><span>♧</span> Cultivos</NavLink>
+                    <NavLink href="/catalogos"><span>☷</span> Catálogos</NavLink>
+                }
+                @if (Auth.CanView(SigaModule.Reportes))
+                {
+                    <NavLink href="/reportes"><span>▤</span> Reportes</NavLink>
+                }
+                @if (Auth.CanView(SigaModule.Usuarios))
+                {
+                    <NavLink href="/usuarios"><span>♙</span> Usuarios</NavLink>
+                }
+                @if (Auth.CanView(SigaModule.Auditoria))
+                {
+                    <NavLink href="/auditoria"><span>◉</span> Auditoría</NavLink>
                 }
             </nav>
 

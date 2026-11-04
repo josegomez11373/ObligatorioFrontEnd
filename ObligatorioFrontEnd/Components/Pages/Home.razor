@@ -1,40 +1,156 @@
 @page "/"
+@implements IDisposable
 @inject DemoAuthService Auth
+@inject ReportService ReportService
+@inject EmpresaService EmpresaService
+@inject CampanaService CampanaService
+@inject EventoService EventoService
+@inject TareaService TareaService
 
 <PageTitle>Resumen | SIGA</PageTitle>
 
 <section class="page-header">
     <div>
-    <p class="eyebrow">@Auth.CurrentUser?.ScopeLabel</p>
-        <h1>Buen día, @Auth.CurrentUser?.Name?.Split(' ')[0]</h1>
-        <p class="page-intro">Esta es la base inicial de SIGA. Desde aquí se organizará el trabajo de cada campaña.</p>
+        <p class="eyebrow">@Auth.CurrentUser?.ScopeLabel</p>
+        <h1>Buen día, @FirstName</h1>
+        <p class="page-intro">Este es el resumen de la actividad agrícola disponible para tu perfil.</p>
     </div>
     <span class="role-chip">@Auth.CurrentUser?.Role.DisplayName()</span>
 </section>
 
-<section class="next-step" aria-labelledby="next-step-title">
-    <p class="eyebrow">Primer flujo</p>
-    <h2 id="next-step-title">La estructura está preparada</h2>
-    <p>La estructura agrícola ya está disponible. El siguiente objetivo es completar campañas, eventos, fotografías e historial.</p>
+@if (Dashboard.Campanas == 0 && Dashboard.Eventos == 0 && Dashboard.Tareas == 0)
+{
+    <section class="next-step" aria-labelledby="next-step-title">
+        <p class="eyebrow">Primeros pasos</p>
+        <h2 id="next-step-title">Todavía no hay actividad registrada</h2>
+        <p>Creá una campaña, registrá eventos de campo y planificá tareas para comenzar a ver indicadores.</p>
+    </section>
+}
+else
+{
+    <section class="dashboard-grid" aria-label="Indicadores">
+        <article>
+            <span class="status-icon">@Dashboard.CampanasActivas</span>
+            <h2>Campañas activas</h2>
+            <p>@Dashboard.Campanas campañas en total · @Dashboard.CampanasCerradas cerradas.</p>
+        </article>
+        <article>
+            <span class="status-icon">@Dashboard.EventosRegistrados</span>
+            <h2>Eventos registrados</h2>
+            <p>@Dashboard.Eventos eventos · @Dashboard.EventosAnulados anulados.</p>
+        </article>
+        <article>
+            <span class="status-icon">@Dashboard.TareasPendientes</span>
+            <h2>Tareas pendientes</h2>
+            <p>@Dashboard.TareasRealizadas realizadas · @Dashboard.TareasVerificadas verificadas.</p>
+        </article>
+        <article>
+            <span class="status-icon metric-currency">@Dashboard.CostoTareas.ToString("C")</span>
+            <h2>Costo de tareas</h2>
+            <p>Insumos, maquinaria y contratistas de tareas vigentes.</p>
+        </article>
+        <article>
+            <span class="status-icon">@Dashboard.RecursosUtilizados</span>
+            <h2>Recursos utilizados</h2>
+            <p>Insumos y maquinaria asociados a las tareas.</p>
+        </article>
+        <article>
+            <span class="status-icon">@Dashboard.EventosAnulados</span>
+            <h2>Eventos anulados</h2>
+            <p>Se conservan para trazabilidad, pero no afectan los indicadores.</p>
+        </article>
+    </section>
+}
+
+<section class="content-grid">
+    <div class="card">
+        <div class="card-header">
+            <div>
+                <p class="eyebrow">Navegación</p>
+                <h2>Accesos rápidos</h2>
+            </div>
+        </div>
+        <div class="quick-links">
+            @if (Auth.CanView(SigaModule.Campanas))
+            {
+                <a class="quick-link" href="/campanas">Campañas <span>→</span></a>
+            }
+            @if (Auth.CanView(SigaModule.Eventos))
+            {
+                <a class="quick-link" href="/eventos">Eventos <span>→</span></a>
+            }
+            @if (Auth.CanView(SigaModule.Tareas))
+            {
+                <a class="quick-link" href="/tareas">Tareas <span>→</span></a>
+            }
+            @if (Auth.CanView(SigaModule.Historial))
+            {
+                <a class="quick-link" href="/historial">Historial <span>→</span></a>
+            }
+            @if (Auth.CanView(SigaModule.Reportes))
+            {
+                <a class="quick-link" href="/reportes">Reportes <span>→</span></a>
+            }
+            @if (Auth.CanView(SigaModule.Auditoria))
+            {
+                <a class="quick-link" href="/auditoria">Auditoría <span>→</span></a>
+            }
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <div>
+                <p class="eyebrow">Trazabilidad</p>
+                <h2>Actividad reciente</h2>
+            </div>
+        </div>
+        @if (!Dashboard.ActividadReciente.Any())
+        {
+            <p class="muted">Sin actividad reciente.</p>
+        }
+        else
+        {
+            <ul class="activity-list">
+                @foreach (var entry in Dashboard.ActividadReciente.Take(6))
+                {
+                    <li>
+                        <strong>@entry.Accion · @entry.Entidad</strong>
+                        <span>@entry.Actor · @SigaTime.Format(entry.FechaUtc)</span>
+                    </li>
+                }
+            </ul>
+        }
+    </div>
 </section>
 
-<section class="dashboard-grid" aria-label="Estado del proyecto">
-    <article>
-        <span class="status-icon">1</span>
-        <h2>Sesión y roles</h2>
-        <p>Acceso simulado y menú adaptado al perfil actual.</p>
-        <span class="status-ready">Listo</span>
-    </article>
-    <article>
-        <span class="status-icon">2</span>
-        <h2>Estructura agrícola</h2>
-        <p>Empresas, establecimientos y potreros con alcance por empresa.</p>
-        <span class="status-ready">Disponible</span>
-    </article>
-    <article>
-        <span class="status-icon">3</span>
-        <h2>Eventos de campo</h2>
-        <p>Registro de observaciones, ubicación y fotografías.</p>
-        <span class="status-later">Pendiente</span>
-    </article>
-</section>
+@code {
+    private ReportDashboard Dashboard { get; set; } = new();
+
+    private string FirstName => Auth.CurrentUser?.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "usuario";
+
+    protected override void OnInitialized()
+    {
+        EmpresaService.StateChanged += Reload;
+        CampanaService.StateChanged += Reload;
+        EventoService.StateChanged += Reload;
+        TareaService.StateChanged += Reload;
+        Build();
+    }
+
+    private void Reload()
+    {
+        Build();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void Build() => Dashboard = ReportService.Build(new ReportFilter());
+
+    public void Dispose()
+    {
+        EmpresaService.StateChanged -= Reload;
+        CampanaService.StateChanged -= Reload;
+        EventoService.StateChanged -= Reload;
+        TareaService.StateChanged -= Reload;
+    }
+}

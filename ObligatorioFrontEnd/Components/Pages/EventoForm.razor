@@ -1,0 +1,114 @@
+@using Microsoft.AspNetCore.Components.Forms
+@using ObligatorioFrontEnd.Models
+@inject CampanaService CampanaService
+@inject PotreroService PotreroService
+@inject TipoEventoService TipoEventoService
+
+<EditForm Model="Model" OnValidSubmit="HandleValidSubmit">
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+
+    <div class="form-field">
+        <label for="campana-potrero">Campaña y potrero</label>
+        <InputSelect id="campana-potrero" @bind-Value="Model.CampanaPotreroId">
+            <option value="@Guid.Empty">Seleccioná una campaña y potrero...</option>
+            @foreach (var item in CampanaService.GetCampanaPotreros().Where(item => item.Campana.Estado is CampanaEstado.Planificada or CampanaEstado.Activa && item.Assignment.Estado is CampanaEstado.Planificada or CampanaEstado.Activa))
+            {
+                <option value="@item.Assignment.Id">@item.Campana.Nombre · @PotreroNombre(item.Assignment.PotreroId)</option>
+            }
+        </InputSelect>
+    </div>
+
+    <div class="form-field">
+        <label for="tipo">Tipo de evento</label>
+        <InputSelect id="tipo" @bind-Value="Model.TipoEventoId">
+            <option value="@Guid.Empty">Seleccioná un tipo...</option>
+            @foreach (var tipo in TipoEventoService.GetAll())
+            {
+                <option value="@tipo.Id">@tipo.Nombre</option>
+            }
+        </InputSelect>
+    </div>
+
+    <div class="form-field">
+        <label for="fecha">Fecha</label>
+        <InputDate id="fecha" @bind-Value="Model.Fecha" />
+    </div>
+
+    <div class="form-field">
+        <label for="descripcion">Descripción</label>
+        <InputTextArea id="descripcion" @bind-Value="Model.Descripcion" rows="3" />
+    </div>
+
+    <div class="form-field">
+        <label for="ubicacion">Ubicación</label>
+        <InputText id="ubicacion" @bind-Value="Model.Ubicacion" placeholder="Opcional" />
+    </div>
+
+    <div class="form-row">
+        <div class="form-field">
+            <label for="latitud">Latitud</label>
+            <InputNumber id="latitud" @bind-Value="Model.Latitud" step="0.000001" placeholder="Opcional" />
+        </div>
+        <div class="form-field">
+            <label for="longitud">Longitud</label>
+            <InputNumber id="longitud" @bind-Value="Model.Longitud" step="0.000001" placeholder="Opcional" />
+        </div>
+    </div>
+
+    <div class="form-field">
+        <label for="fotos">Fotografías</label>
+        <InputFile id="fotos" OnChange="SelectPhotos" multiple accept="image/jpeg,image/png,image/heic,image/heif" />
+        <p class="field-help">JPG, PNG o HEIC. Máximo 10 MB por archivo.</p>
+        @if (Model.Fotos.Count > 0)
+        {
+            <p class="field-help">@Model.Fotos.Count archivo(s) seleccionado(s): @string.Join(", ", Model.Fotos.Select(foto => foto.NombreArchivo))</p>
+        }
+        @if (!string.IsNullOrWhiteSpace(photoError))
+        {
+            <p class="form-error" role="alert">@photoError</p>
+        }
+    </div>
+
+    <div class="form-actions">
+        <button class="primary-button" type="submit">Guardar</button>
+        <button type="button" @onclick="HandleCancel">Cancelar</button>
+    </div>
+</EditForm>
+
+@code {
+    private const long MaxFileSize = 10 * 1024 * 1024;
+
+    [Parameter, EditorRequired] public EventoEditModel Model { get; set; } = new();
+    [Parameter] public EventCallback<EventoEditModel> OnValidSubmit { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private string? photoError;
+
+    private async Task SelectPhotos(InputFileChangeEventArgs args)
+    {
+        photoError = null;
+        var uploads = new List<FotoUpload>();
+
+        foreach (var file in args.GetMultipleFiles(20))
+        {
+            try
+            {
+                await using var stream = file.OpenReadStream(MaxFileSize);
+                using var buffer = new MemoryStream();
+                await stream.CopyToAsync(buffer);
+                uploads.Add(new FotoUpload(file.Name, file.ContentType, buffer.ToArray()));
+            }
+            catch (IOException)
+            {
+                photoError = $"El archivo {file.Name} supera el máximo de 10 MB.";
+            }
+        }
+
+        Model.Fotos = uploads;
+    }
+
+    private string PotreroNombre(Guid id) => PotreroService.GetById(id)?.Nombre ?? "Potrero no disponible";
+    private Task HandleValidSubmit() => OnValidSubmit.InvokeAsync(Model);
+    private Task HandleCancel() => OnCancel.InvokeAsync();
+}
