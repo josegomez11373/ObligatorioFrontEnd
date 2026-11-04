@@ -1,0 +1,695 @@
+@page "/reportes"
+@implements IDisposable
+@inject ReportService ReportService
+@inject CampanaService CampanaService
+@inject EmpresaService EmpresaService
+@inject EstablecimientoService EstablecimientoService
+@inject PotreroService PotreroService
+@inject AuditService AuditService
+@inject TareaService TareaService
+@inject EventoService EventoService
+
+<PageTitle>Reportes | SIGA</PageTitle>
+
+<RoleGuard Module="SigaModule.Reportes">
+    <section class="page-header">
+        <div>
+            <p class="eyebrow">Análisis operativo</p>
+            <h1>Reportes avanzados</h1>
+            <p class="page-intro">Indicadores de campañas, eventos, tareas, costos y actividad del sistema dentro de tu alcance.</p>
+        </div>
+        <button class="primary-button primary-button--inline report-create-button" type="button" @onclick="OpenFilters" aria-haspopup="dialog" aria-expanded="@filtersOpen">
+            <span aria-hidden="true">+</span>
+            @(HasAppliedFilters ? "Editar filtros" : "Crear reporte")
+        </button>
+    </section>
+
+    @if (HasAppliedFilters)
+    {
+        <div class="report-filter-summary" aria-label="Filtros aplicados">
+            <span class="report-filter-summary__label">Filtros activos</span>
+            @foreach (var chip in ActiveFilterChips)
+            {
+                <span class="filter-chip">@chip</span>
+            }
+            <button class="link-button" type="button" @onclick="ClearFilters">Limpiar filtros</button>
+        </div>
+    }
+
+    <section class="dashboard-grid" aria-label="Resumen del período">
+        <article><span class="status-icon">@Dashboard.Campanas</span><h2>Campañas</h2><p>@Dashboard.CampanasActivas activas · @Dashboard.CampanasCerradas cerradas.</p></article>
+        <article><span class="status-icon">@Dashboard.Eventos</span><h2>Eventos</h2><p>@Dashboard.EventosRegistrados registrados · @Dashboard.EventosAnulados anulados.</p></article>
+        <article><span class="status-icon">@Dashboard.Tareas</span><h2>Tareas</h2><p>@Dashboard.TareasPendientes pendientes · @Dashboard.TareasVerificadas verificadas.</p></article>
+        <article><span class="status-icon">@Dashboard.CostoTareas.ToString("C")</span><h2>Costos</h2><p>Costo acumulado de las tareas filtradas (sin anuladas).</p></article>
+        <article><span class="status-icon">@Dashboard.RecursosUtilizados</span><h2>Recursos</h2><p>Insumos y maquinaria asociados a tareas.</p></article>
+        <article><span class="status-icon">@Dashboard.TareasRealizadas</span><h2>Realizadas</h2><p>Tareas realizadas pendientes o completadas de verificación.</p></article>
+    </section>
+
+    <section class="report-workspace" aria-label="Reportes disponibles">
+        <div class="report-tabs-shell">
+            <div class="report-tabs-heading">
+                <div>
+                    <p class="eyebrow">Explorá los resultados</p>
+                    <h2>Reportes disponibles</h2>
+                </div>
+                <span class="report-tabs-hint">Deslizá para ver más</span>
+            </div>
+            <nav class="report-tabs" role="tablist" aria-label="Elegir reporte">
+                @foreach (var tab in ReportTabs)
+                {
+                    <button type="button"
+                            id="report-tab-@tab.Id"
+                            class="report-tab @(tab.Id == activeReport ? "is-active" : null)"
+                            role="tab"
+                            aria-selected="@(tab.Id == activeReport ? "true" : "false")"
+                            aria-controls="report-panel"
+                            @onclick="() => SelectReport(tab.Id)">
+                         <span class="report-tab__number" aria-hidden="true">@tab.Number</span>
+                         <span class="report-tab__label">@tab.Label</span>
+                    </button>
+                }
+            </nav>
+        </div>
+
+        <section id="report-panel"
+                 class="card report-panel"
+                 role="tabpanel"
+                 aria-labelledby="report-tab-@activeReport"
+                 @key="activeReport">
+            <header class="report-panel__header">
+                 <div class="report-panel__title">
+                    <p class="eyebrow">@CurrentReport.Eyebrow</p>
+                    <h2>@CurrentReport.Title</h2>
+                    <p class="report-panel__description">@CurrentReport.Description</p>
+                </div>
+                <span class="report-count">@CurrentReportCount @(CurrentReportCount == 1 ? "registro" : "registros")</span>
+            </header>
+
+            @switch (activeReport)
+            {
+                case "potrero":
+                    @if (!Dashboard.LineaDeTiempo.Any())
+                    {
+                        <p class="report-empty">Sin registros para los filtros seleccionados.</p>
+                    }
+                    else
+                    {
+                        <div class="report-table-wrap">
+                            <table class="table">
+                                <thead><tr><th>Fecha</th><th>Tipo</th><th>Potrero</th><th>Descripción</th><th>Actor</th><th>Origen</th><th>Costo</th></tr></thead>
+                                <tbody>
+                                    @foreach (var row in Dashboard.LineaDeTiempo)
+                                    {
+                                        <tr><td>@row.Fecha.ToString("dd/MM/yyyy")</td><td>@row.Tipo</td><td>@row.Potrero</td><td>@row.Descripcion</td><td>@row.Actor</td><td>@row.Origen</td><td>@(row.Costo?.ToString("C") ?? "—")</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    break;
+
+                case "problemas":
+                    @if (!Dashboard.ProblemasDetectados.Any())
+                    {
+                        <p class="report-empty">Sin problemas detectados.</p>
+                    }
+                    else
+                    {
+                        <div class="report-table-wrap">
+                            <table class="table">
+                                <thead><tr><th>Tipo</th><th>Potrero</th><th>Cantidad</th><th>Última detección</th></tr></thead>
+                                <tbody>
+                                    @foreach (var row in Dashboard.ProblemasDetectados)
+                                    {
+                                        <tr><td>@row.Tipo</td><td>@row.Potrero</td><td>@row.Cantidad</td><td>@(row.UltimaDeteccion?.ToString("dd/MM/yyyy") ?? "—")</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    break;
+
+                case "autores":
+                    @if (!Dashboard.EventosConAutor.Any())
+                    {
+                        <p class="report-empty">Sin eventos.</p>
+                    }
+                    else
+                    {
+                        <div class="report-table-wrap">
+                            <table class="table">
+                                <thead><tr><th>Fecha</th><th>Tipo</th><th>Potrero</th><th>Autor</th><th>Estado</th></tr></thead>
+                                <tbody>
+                                    @foreach (var row in Dashboard.EventosConAutor)
+                                    {
+                                        <tr><td>@row.Fecha.ToString("dd/MM/yyyy")</td><td>@row.Tipo</td><td>@row.Potrero</td><td>@row.Autor</td><td>@row.Estado</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    break;
+
+                case "respuestas":
+                    @if (!Dashboard.TareasDeRespuesta.Any())
+                    {
+                        <p class="report-empty">Sin tareas vinculadas a eventos.</p>
+                    }
+                    else
+                    {
+                        <div class="report-table-wrap">
+                            <table class="table">
+                                <thead><tr><th>Fecha</th><th>Evento</th><th>Tarea</th><th>Potrero</th><th>Estado</th><th>Resultado</th><th>Costo</th></tr></thead>
+                                <tbody>
+                                    @foreach (var row in Dashboard.TareasDeRespuesta)
+                                    {
+                                        <tr><td>@row.Fecha.ToString("dd/MM/yyyy")</td><td>@row.Evento</td><td>@row.Tarea</td><td>@row.Potrero</td><td>@row.Estado</td><td>@(row.Resultado ?? "—")</td><td>@row.Costo.ToString("C")</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    break;
+
+                case "recursos":
+                    @if (!Dashboard.RecursosDetalle.Any())
+                    {
+                        <p class="report-empty">Sin recursos utilizados.</p>
+                    }
+                    else
+                    {
+                        <div class="report-table-wrap">
+                            <table class="table">
+                                <thead><tr><th>Tipo</th><th>Recurso</th><th>Unidad</th><th>Cantidad</th><th>Costo</th></tr></thead>
+                                <tbody>
+                                    @foreach (var row in Dashboard.RecursosDetalle)
+                                    {
+                                        <tr><td>@row.Tipo</td><td>@row.Nombre</td><td>@row.Unidad</td><td>@row.Cantidad.ToString("G")</td><td>@row.Costo.ToString("C")</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    break;
+
+                case "costos":
+                    @if (!Dashboard.CostosPorCampana.Any())
+                    {
+                        <p class="report-empty">Sin campañas para los filtros seleccionados.</p>
+                    }
+                    else
+                    {
+                        <div class="report-table-wrap">
+                            <table class="table">
+                                <thead><tr><th>Campaña</th><th>Empresa</th><th>Tareas</th><th>Anuladas</th><th>Insumos</th><th>Maquinaria</th><th>Total</th></tr></thead>
+                                <tbody>
+                                    @foreach (var row in Dashboard.CostosPorCampana)
+                                    {
+                                        <tr><td>@row.Campana</td><td>@row.Empresa</td><td>@row.Tareas</td><td>@row.TareasAnuladas</td><td>@row.Insumos.ToString("C")</td><td>@row.Maquinaria.ToString("C")</td><td><strong>@row.Total.ToString("C")</strong></td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    break;
+
+                case "tratamientos":
+                    @if (!Dashboard.Tratamientos.Any())
+                    {
+                        <p class="report-empty">Sin tratamientos registrados.</p>
+                    }
+                    else
+                    {
+                        <div class="report-table-wrap">
+                            <table class="table">
+                                <thead><tr><th>Tratamiento</th><th>Total</th><th>Resueltas</th><th>Efectividad</th><th>Costo promedio</th></tr></thead>
+                                <tbody>
+                                    @foreach (var row in Dashboard.Tratamientos)
+                                    {
+                                        <tr><td>@row.Tratamiento</td><td>@row.Total</td><td>@row.Resueltas</td><td>@row.Efectividad.ToString("0.0")%</td><td>@row.CostoPromedio.ToString("C")</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    break;
+
+                case "zonas":
+                    @if (!Dashboard.ZonasProblematicas.Any())
+                    {
+                        <p class="report-empty">Sin problemas por zona.</p>
+                    }
+                    else
+                    {
+                        <div class="report-table-wrap">
+                            <table class="table">
+                                <thead><tr><th>Establecimiento</th><th>Potrero</th><th>Eventos</th><th>Tipos frecuentes</th></tr></thead>
+                                <tbody>
+                                    @foreach (var row in Dashboard.ZonasProblematicas)
+                                    {
+                                        <tr><td>@row.Establecimiento</td><td>@row.Potrero</td><td>@row.Eventos</td><td>@row.TiposFrecuentes</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    break;
+
+                case "campanas":
+                    @if (!Dashboard.CampanasDetalle.Any())
+                    {
+                        <p class="report-empty">Sin campañas.</p>
+                    }
+                    else
+                    {
+                        <div class="report-table-wrap">
+                            <table class="table">
+                                <thead><tr><th>Campaña</th><th>Estado</th><th>Potreros</th><th>Eventos</th><th>Tareas</th><th>Costo</th></tr></thead>
+                                <tbody>
+                                    @foreach (var row in Dashboard.CampanasDetalle)
+                                    {
+                                        <tr><td>@row.Nombre<br /><small>@row.Empresa</small></td><td>@row.Estado.DisplayName()</td><td>@row.Potreros</td><td>@row.Eventos</td><td>@row.Tareas</td><td>@row.CostoTareas.ToString("C")</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    break;
+
+                case "eventos-tipo":
+                    @if (!Dashboard.EventosPorTipo.Any())
+                    {
+                        <p class="report-empty">Sin eventos.</p>
+                    }
+                    else
+                    {
+                        <div class="report-table-wrap">
+                            <table class="table">
+                                <thead><tr><th>Tipo</th><th>Cantidad</th></tr></thead>
+                                <tbody>
+                                    @foreach (var row in Dashboard.EventosPorTipo)
+                                    {
+                                        <tr><td>@row.Nombre</td><td>@row.Cantidad</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    break;
+
+                case "tareas-tipo":
+                    @if (!Dashboard.TareasPorTipo.Any())
+                    {
+                        <p class="report-empty">Sin tareas.</p>
+                    }
+                    else
+                    {
+                        <div class="report-table-wrap">
+                            <table class="table">
+                                <thead><tr><th>Tipo</th><th>Cantidad</th><th>Costo</th></tr></thead>
+                                <tbody>
+                                    @foreach (var row in Dashboard.TareasPorTipo)
+                                    {
+                                        <tr><td>@row.Nombre</td><td>@row.Cantidad</td><td>@row.Importe.ToString("C")</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    break;
+
+                case "actividad":
+                    @if (!Dashboard.ActividadReciente.Any())
+                    {
+                        <p class="report-empty">Sin actividad.</p>
+                    }
+                    else
+                    {
+                        <div class="report-table-wrap">
+                            <table class="table">
+                                <thead><tr><th>Fecha</th><th>Actor</th><th>Acción</th></tr></thead>
+                                <tbody>
+                                    @foreach (var row in Dashboard.ActividadReciente)
+                                    {
+                                        <tr><td>@SigaTime.Format(row.FechaUtc)</td><td>@row.Actor</td><td>@row.Accion · @row.Entidad</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    break;
+            }
+        </section>
+    </section>
+
+    @if (filtersOpen)
+    {
+        <div class="report-drawer-backdrop" @onclick="CloseFilters">
+            <aside class="report-drawer"
+                   role="dialog"
+                   aria-modal="true"
+                   aria-labelledby="report-drawer-title"
+                   @onclick:stopPropagation="true">
+                <header class="report-drawer__header">
+                    <div>
+                        <p class="eyebrow">Configuración</p>
+                         <h2 id="report-drawer-title">@(HasAppliedFilters ? "Editar reporte" : "Crear reporte")</h2>
+                        <p class="report-drawer__intro">Elegí el alcance y los filtros. El resumen y los reportes se actualizan al aplicar.</p>
+                    </div>
+                    <button class="icon-button" type="button" @onclick="CloseFilters" aria-label="Cerrar panel de filtros">×</button>
+                </header>
+
+                <div class="report-drawer__body">
+                    <fieldset class="report-drawer__group">
+                        <legend>Alcance</legend>
+                        <div class="form-field">
+                            <label for="rep-empresa">Empresa</label>
+                            <select id="rep-empresa" @bind="draft.Empresa" @bind:after="OnDraftEmpresaChanged">
+                                <option value="">Todas las empresas visibles</option>
+                                @foreach (var empresa in EmpresaService.GetAll())
+                                {
+                                    <option value="@empresa.Id">@empresa.Nombre</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-field">
+                                <label for="rep-establecimiento">Establecimiento</label>
+                                <select id="rep-establecimiento" @bind="draft.Establecimiento" @bind:after="OnDraftEstablecimientoChanged">
+                                    <option value="">Todos</option>
+                                    @foreach (var establecimiento in EstablecimientosDisponibles)
+                                    {
+                                        <option value="@establecimiento.Id">@establecimiento.Nombre</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="form-field">
+                                <label for="rep-potrero">Potrero</label>
+                                <select id="rep-potrero" @bind="draft.Potrero">
+                                    <option value="">Todos</option>
+                                    @foreach (var potrero in PotrerosDisponibles)
+                                    {
+                                        <option value="@potrero.Id">@potrero.Nombre</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-field">
+                            <label for="rep-campana">Campaña</label>
+                            <select id="rep-campana" @bind="draft.Campana">
+                                <option value="">Todas las campañas</option>
+                                @foreach (var campana in CampanasDisponibles)
+                                {
+                                    <option value="@campana.Id">@campana.Nombre</option>
+                                }
+                            </select>
+                        </div>
+                    </fieldset>
+
+                    <fieldset class="report-drawer__group">
+                        <legend>Período</legend>
+                        <div class="form-row">
+                            <div class="form-field">
+                                <label for="rep-desde">Desde</label>
+                                <InputDate id="rep-desde" @bind-Value="draft.Desde" />
+                            </div>
+                            <div class="form-field">
+                                <label for="rep-hasta">Hasta</label>
+                                <InputDate id="rep-hasta" @bind-Value="draft.Hasta" />
+                            </div>
+                        </div>
+                    </fieldset>
+
+                    <fieldset class="report-drawer__group">
+                        <legend>Estados</legend>
+                        <div class="form-row">
+                            <div class="form-field">
+                                <label for="rep-estado-campana">Estado de campaña</label>
+                                <select id="rep-estado-campana" @bind="draft.EstadoCampana">
+                                    <option value="">Todos</option>
+                                    @foreach (var estado in Enum.GetValues<CampanaEstado>())
+                                    {
+                                        <option value="@estado">@estado.DisplayName()</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="form-field">
+                                <label for="rep-estado-evento">Estado de evento</label>
+                                <select id="rep-estado-evento" @bind="draft.EstadoEvento">
+                                    <option value="">Todos</option>
+                                    @foreach (var estado in Enum.GetValues<EventoEstado>())
+                                    {
+                                        <option value="@estado">@estado</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-field">
+                            <label for="rep-estado-tarea">Estado de tarea</label>
+                            <select id="rep-estado-tarea" @bind="draft.EstadoTarea">
+                                <option value="">Todos</option>
+                                @foreach (var estado in Enum.GetValues<TareaEstado>())
+                                {
+                                    <option value="@estado">@estado</option>
+                                }
+                            </select>
+                        </div>
+                    </fieldset>
+                </div>
+
+                <footer class="report-drawer__footer">
+                    <button class="primary-button" type="button" @onclick="ApplyFilters">Aplicar filtros</button>
+                    <button type="button" @onclick="ResetDraft">Limpiar</button>
+                    <button type="button" @onclick="CloseFilters">Cancelar</button>
+                </footer>
+            </aside>
+        </div>
+    }
+</RoleGuard>
+
+@code {
+    private static readonly ReportTab[] ReportTabs =
+    [
+        new("potrero", "1", "Potrero", "Reporte 1", "Qué ocurrió en un potrero durante la campaña", "Cronología de eventos y tareas con su origen y costo."),
+        new("problemas", "2", "Problemas", "Reporte 2", "Malezas, plagas y enfermedades", "Detecciones agrupadas por tipo y potrero."),
+        new("autores", "3", "Autores", "Reporte 3", "Quién registró cada evento", "Trazabilidad de los eventos registrados en campo."),
+        new("respuestas", "4", "Respuestas", "Reporte 4", "Tareas realizadas como respuesta a eventos", "Tareas vinculadas a un evento, con su resultado y costo."),
+        new("recursos", "5", "Recursos", "Reporte 5", "Productos y maquinaria utilizados", "Insumos y equipos aplicados en las tareas."),
+        new("costos", "6", "Costos", "Reporte 6", "Costo de una campaña", "Desglose de insumos, maquinaria y total por campaña."),
+        new("tratamientos", "7", "Tratamientos", "Reporte 7", "Tratamientos con mejores resultados", "Efectividad y costo promedio de cada tratamiento."),
+        new("zonas", "8", "Zonas", "Reporte 8", "Zonas con problemas más frecuentes", "Establecimientos y potreros con más eventos problemáticos."),
+        new("campanas", "9", "Campañas", "Detalle", "Campañas y rendimiento", "Resumen de potreros, eventos, tareas y costo por campaña."),
+        new("eventos-tipo", "10", "Eventos por tipo", "Detalle", "Eventos por tipo", "Cantidad de eventos agrupados por clasificación."),
+        new("tareas-tipo", "11", "Tareas por tipo", "Detalle", "Tareas por tipo", "Cantidad y costo de tareas agrupadas por operación."),
+        new("actividad", "12", "Actividad", "Detalle", "Actividad reciente", "Últimos movimientos registrados en la auditoría.")
+    ];
+
+    private ReportDashboard Dashboard { get; set; } = new();
+    private FilterState draft = new();
+    private FilterState applied = new();
+    private bool filtersOpen;
+    private string activeReport = "potrero";
+
+    private ReportTab CurrentReport => ReportTabs.First(tab => tab.Id == activeReport);
+
+    private int CurrentReportCount => activeReport switch
+    {
+        "potrero" => Dashboard.LineaDeTiempo.Count,
+        "problemas" => Dashboard.ProblemasDetectados.Count,
+        "autores" => Dashboard.EventosConAutor.Count,
+        "respuestas" => Dashboard.TareasDeRespuesta.Count,
+        "recursos" => Dashboard.RecursosDetalle.Count,
+        "costos" => Dashboard.CostosPorCampana.Count,
+        "tratamientos" => Dashboard.Tratamientos.Count,
+        "zonas" => Dashboard.ZonasProblematicas.Count,
+        "campanas" => Dashboard.CampanasDetalle.Count,
+        "eventos-tipo" => Dashboard.EventosPorTipo.Count,
+        "tareas-tipo" => Dashboard.TareasPorTipo.Count,
+        "actividad" => Dashboard.ActividadReciente.Count,
+        _ => 0
+    };
+
+    private bool HasAppliedFilters => ActiveFilterChips.Count > 0;
+
+    private IReadOnlyList<string> ActiveFilterChips
+    {
+        get
+        {
+            var chips = new List<string>();
+
+            if (ParseGuid(applied.Empresa) is Guid empresaId)
+            {
+                chips.Add(EmpresaService.GetById(empresaId)?.Nombre ?? "Empresa seleccionada");
+            }
+
+            if (ParseGuid(applied.Establecimiento) is Guid establecimientoId)
+            {
+                chips.Add(EstablecimientoService.GetById(establecimientoId)?.Nombre ?? "Establecimiento seleccionado");
+            }
+
+            if (ParseGuid(applied.Potrero) is Guid potreroId)
+            {
+                chips.Add(PotreroService.GetById(potreroId)?.Nombre ?? "Potrero seleccionado");
+            }
+
+            if (ParseGuid(applied.Campana) is Guid campanaId)
+            {
+                chips.Add(CampanaService.GetById(campanaId)?.Nombre ?? "Campaña seleccionada");
+            }
+
+            if (applied.Desde is DateTime desde)
+            {
+                chips.Add($"Desde {desde:dd/MM/yyyy}");
+            }
+
+            if (applied.Hasta is DateTime hasta)
+            {
+                chips.Add($"Hasta {hasta:dd/MM/yyyy}");
+            }
+
+            if (ParseEnum<CampanaEstado>(applied.EstadoCampana) is CampanaEstado campanaEstado)
+            {
+                chips.Add($"Campaña: {campanaEstado.DisplayName()}");
+            }
+
+            if (ParseEnum<EventoEstado>(applied.EstadoEvento) is EventoEstado eventoEstado)
+            {
+                chips.Add($"Evento: {eventoEstado}");
+            }
+
+            if (ParseEnum<TareaEstado>(applied.EstadoTarea) is TareaEstado tareaEstado)
+            {
+                chips.Add($"Tarea: {tareaEstado}");
+            }
+
+            return chips;
+        }
+    }
+
+    private Guid? DraftEmpresaId => ParseGuid(draft.Empresa);
+    private Guid? DraftEstablecimientoId => ParseGuid(draft.Establecimiento);
+
+    private IEnumerable<Establecimiento> EstablecimientosDisponibles => EstablecimientoService.GetAll()
+        .Where(item => !DraftEmpresaId.HasValue || item.EmpresaId == DraftEmpresaId);
+
+    private IEnumerable<Potrero> PotrerosDisponibles => PotreroService.GetAll()
+        .Where(item => !DraftEstablecimientoId.HasValue || item.EstablecimientoId == DraftEstablecimientoId)
+        .Where(item => !DraftEmpresaId.HasValue || EstablecimientoService.GetById(item.EstablecimientoId)?.EmpresaId == DraftEmpresaId);
+
+    private IEnumerable<Campana> CampanasDisponibles => CampanaService.GetAll()
+        .Where(item => !DraftEmpresaId.HasValue || item.EmpresaId == DraftEmpresaId);
+
+    protected override void OnInitialized()
+    {
+        CampanaService.StateChanged += Reload;
+        EventoService.StateChanged += Reload;
+        TareaService.StateChanged += Reload;
+        AuditService.StateChanged += Reload;
+        Actualizar();
+    }
+
+    private void SelectReport(string id) => activeReport = id;
+
+    private void OpenFilters()
+    {
+        draft = applied.Clone();
+        filtersOpen = true;
+    }
+
+    private void CloseFilters()
+    {
+        filtersOpen = false;
+        draft = applied.Clone();
+    }
+
+    private void ApplyFilters()
+    {
+        applied = draft.Clone();
+        filtersOpen = false;
+        Actualizar();
+    }
+
+    private void ClearFilters()
+    {
+        draft = new FilterState();
+        applied = new FilterState();
+        Actualizar();
+    }
+
+    private void ResetDraft() => draft = new FilterState();
+
+    private void OnDraftEmpresaChanged()
+    {
+        draft.Establecimiento = string.Empty;
+        draft.Potrero = string.Empty;
+        draft.Campana = string.Empty;
+    }
+
+    private void OnDraftEstablecimientoChanged()
+    {
+        draft.Potrero = string.Empty;
+    }
+
+    private void Reload() => InvokeAsync(() =>
+    {
+        Actualizar();
+        StateHasChanged();
+    });
+
+    private void Actualizar()
+    {
+        Dashboard = ReportService.Build(new ReportFilter
+        {
+            EmpresaId = ParseGuid(applied.Empresa),
+            EstablecimientoId = ParseGuid(applied.Establecimiento),
+            PotreroId = ParseGuid(applied.Potrero),
+            CampanaId = ParseGuid(applied.Campana),
+            Desde = applied.Desde,
+            Hasta = applied.Hasta,
+            CampanaEstado = ParseEnum<CampanaEstado>(applied.EstadoCampana),
+            EventoEstado = ParseEnum<EventoEstado>(applied.EstadoEvento),
+            TareaEstado = ParseEnum<TareaEstado>(applied.EstadoTarea)
+        });
+    }
+
+    private static Guid? ParseGuid(string value) => Guid.TryParse(value, out var id) ? id : null;
+
+    private static TEnum? ParseEnum<TEnum>(string value) where TEnum : struct, Enum =>
+        Enum.TryParse<TEnum>(value, out var parsed) ? parsed : null;
+
+    public void Dispose()
+    {
+        CampanaService.StateChanged -= Reload;
+        EventoService.StateChanged -= Reload;
+        TareaService.StateChanged -= Reload;
+        AuditService.StateChanged -= Reload;
+    }
+
+    private sealed record ReportTab(string Id, string Number, string Label, string Eyebrow, string Title, string Description);
+
+    private sealed class FilterState
+    {
+        public string Empresa { get; set; } = string.Empty;
+        public string Establecimiento { get; set; } = string.Empty;
+        public string Potrero { get; set; } = string.Empty;
+        public string Campana { get; set; } = string.Empty;
+        public string EstadoCampana { get; set; } = string.Empty;
+        public string EstadoEvento { get; set; } = string.Empty;
+        public string EstadoTarea { get; set; } = string.Empty;
+        public DateTime? Desde { get; set; }
+        public DateTime? Hasta { get; set; }
+
+        public FilterState Clone() => new()
+        {
+            Empresa = Empresa,
+            Establecimiento = Establecimiento,
+            Potrero = Potrero,
+            Campana = Campana,
+            EstadoCampana = EstadoCampana,
+            EstadoEvento = EstadoEvento,
+            EstadoTarea = EstadoTarea,
+            Desde = Desde,
+            Hasta = Hasta
+        };
+    }
+}

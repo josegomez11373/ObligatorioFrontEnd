@@ -1,0 +1,20 @@
+@page "/catalogos"
+
+<PageTitle>Catálogos | SIGA</PageTitle>
+<RoleGuard Module="SigaModule.Catalogos">
+    <section class="page-header">
+        <div>
+            <p class="eyebrow">Configuración</p>
+            <h1>Catálogos</h1>
+            <p class="page-intro">Administrá los valores que se utilizan en campañas, eventos y tareas.</p>
+        </div>
+    </section>
+    <section class="dashboard-grid catalog-grid" aria-label="Secciones de catálogos">
+        <a class="card catalog-link" href="/cultivos"><span class="eyebrow">Producción</span><h2>Cultivos</h2><p>Especies y variedades disponibles.</p><span class="catalog-link__action">Gestionar <span aria-hidden="true">→</span></span></a>
+        <a class="card catalog-link" href="/tipos-evento"><span class="eyebrow">Campo</span><h2>Tipos de evento</h2><p>Clasificación de observaciones de campo.</p><span class="catalog-link__action">Gestionar <span aria-hidden="true">→</span></span></a>
+        <a class="card catalog-link" href="/tipos-tarea"><span class="eyebrow">Operaciones</span><h2>Tipos de tarea</h2><p>Operaciones planificables.</p><span class="catalog-link__action">Gestionar <span aria-hidden="true">→</span></span></a>
+        <a class="card catalog-link" href="/insumos"><span class="eyebrow">Recursos</span><h2>Insumos</h2><p>Materiales, unidades y precios.</p><span class="catalog-link__action">Gestionar <span aria-hidden="true">→</span></span></a>
+        <a class="card catalog-link" href="/maquinaria"><span class="eyebrow">Recursos</span><h2>Maquinaria</h2><p>Equipos y costo por hora.</p><span class="catalog-link__action">Gestionar <span aria-hidden="true">→</span></span></a>
+        <a class="card catalog-link" href="/contratistas"><span class="eyebrow">Servicios</span><h2>Contratistas</h2><p>Proveedores de servicios de campo.</p><span class="catalog-link__action">Gestionar <span aria-hidden="true">→</span></span></a>
+    </section>
+</RoleGuard>

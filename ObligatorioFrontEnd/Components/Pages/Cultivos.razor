@@ -1,0 +1,208 @@
+@page "/cultivos"
+@implements IDisposable
+@inject CultivoService CultivoService
+@inject EmpresaService EmpresaService
+@inject DemoAuthService Auth
+
+<PageTitle>Cultivos | SIGA</PageTitle>
+
+<RoleGuard Module="SigaModule.Catalogos">
+    <section class="page-header">
+        <div>
+            <p class="eyebrow">Catálogos</p>
+            <h1>Cultivos</h1>
+            <p class="page-intro">Administrá los cultivos disponibles para crear campañas.</p>
+            <a class="catalog-back-link" href="/catalogos"><span aria-hidden="true">←</span> Volver a catálogos</a>
+        </div>
+        @if (CanManage)
+        {
+            <button class="primary-button primary-button--inline" type="button" @onclick="Nuevo">Nuevo cultivo</button>
+        }
+    </section>
+
+    @if (!string.IsNullOrWhiteSpace(error))
+    {
+        <p class="form-error" role="alert">@error</p>
+    }
+
+    <section class="card">
+            <div class="card-header">
+                <h2>Cultivos (@cultivos.Count)</h2>
+                @if (IsAdminGeneral)
+                {
+                    <div class="form-field compact-field">
+                        <label for="cultivo-empresa">Empresa</label>
+                        <select id="cultivo-empresa" @bind="empresaFiltro" @bind:after="OnEmpresaChanged">
+                            @foreach (var empresa in EmpresaService.GetAll())
+                            {
+                                <option value="@empresa.Id">@empresa.Nombre</option>
+                            }
+                        </select>
+                    </div>
+                }
+            </div>
+
+            @if (!cultivos.Any())
+            {
+                <p class="muted">No hay cultivos registrados para la empresa seleccionada.</p>
+            }
+            else
+            {
+                <table class="table">
+                    <thead>
+                        <tr><th>Nombre</th><th>Empresa</th><th>Estado</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var cultivo in cultivos)
+                        {
+                            <tr class="@(cultivo.Activo ? null : "row-muted")">
+                                <td>@cultivo.Nombre</td>
+                                <td>@(EmpresaService.GetById(cultivo.EmpresaId)?.Nombre ?? "—")</td>
+                                <td>@(cultivo.Activo ? "Activo" : "Desactivado")</td>
+                                <td class="actions">
+                                    @if (CanManage)
+                                    {
+                                        <button type="button" @onclick="() => Editar(cultivo)">Editar</button>
+                                        @if (cultivo.Activo)
+                                        {
+                                            <button type="button" class="destructive" @onclick="() => Deactivate(cultivo.Id)">Desactivar</button>
+                                        }
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+    </section>
+    @if (CanManage)
+    {
+        <SidePanel IsOpen="formOpen" Title="@(editingId is null ? "Nuevo cultivo" : "Editar cultivo")" OnClose="Limpiar">
+                <EditForm Model="model" OnValidSubmit="Guardar">
+                    <DataAnnotationsValidator />
+                    <ValidationSummary />
+                    <div class="form-field">
+                        <label for="cultivo-nombre">Nombre</label>
+                        <InputText id="cultivo-nombre" @bind-Value="model.Nombre" />
+                    </div>
+                    <div class="form-field">
+                        <label class="checkbox-item">
+                            <InputCheckbox @bind-Value="model.Activo" /> Activo
+                        </label>
+                    </div>
+                    <div class="form-actions">
+                        <button class="primary-button" type="submit">Guardar</button>
+                        <button type="button" @onclick="Limpiar">Cancelar</button>
+                    </div>
+                </EditForm>
+        </SidePanel>
+    }
+</RoleGuard>
+
+@code {
+    private IReadOnlyList<Cultivo> cultivos = [];
+    private CultivoForm model = new();
+    private Guid? editingId;
+    private string? error;
+    private string empresaFiltro = string.Empty;
+    private bool formOpen;
+
+    private bool IsAdminGeneral => Auth.CurrentUser?.Role == UserRole.AdministradorGeneral;
+    private bool CanManage => Auth.CurrentUser is { Role: var role } && Permissions.CanManageCultivos(role);
+    private Guid EmpresaId => Guid.TryParse(empresaFiltro, out var id) ? id : Guid.Empty;
+
+    protected override void OnInitialized()
+    {
+        CultivoService.StateChanged += Load;
+        empresaFiltro = (Auth.CurrentUser?.EmpresaId ?? EmpresaService.GetAll().FirstOrDefault()?.Id ?? Guid.Empty).ToString();
+        Load();
+    }
+
+    private void Load()
+    {
+        cultivos = CultivoService.GetAll(true)
+            .Where(cultivo => EmpresaId == Guid.Empty || cultivo.EmpresaId == EmpresaId)
+            .ToList();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnEmpresaChanged()
+    {
+        Limpiar();
+        Load();
+    }
+
+    private void Editar(Cultivo item)
+    {
+        editingId = item.Id;
+        formOpen = true;
+        empresaFiltro = item.EmpresaId.ToString();
+        model = new CultivoForm { Nombre = item.Nombre, Activo = item.Activo };
+        error = null;
+    }
+
+    private void Nuevo()
+    {
+        Limpiar();
+        formOpen = true;
+    }
+
+    private void Guardar()
+    {
+        error = null;
+
+        try
+        {
+            if (editingId is Guid id)
+            {
+                CultivoService.Update(id, model.Nombre, model.Activo);
+            }
+            else
+            {
+                if (EmpresaId == Guid.Empty)
+                {
+                    throw new InvalidOperationException("Seleccioná una empresa.");
+                }
+
+                CultivoService.Create(EmpresaId, model.Nombre);
+            }
+
+            Limpiar();
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+    }
+
+    private void Deactivate(Guid id)
+    {
+        error = null;
+
+        try
+        {
+            CultivoService.Deactivate(id);
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+    }
+
+    private void Limpiar()
+    {
+        formOpen = false;
+        editingId = null;
+        model = new CultivoForm();
+        error = null;
+    }
+
+    public void Dispose() => CultivoService.StateChanged -= Load;
+
+    private sealed class CultivoForm
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "El nombre es obligatorio.")]
+        public string Nombre { get; set; } = string.Empty;
+        public bool Activo { get; set; } = true;
+    }
+}

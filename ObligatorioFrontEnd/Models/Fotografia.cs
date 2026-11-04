@@ -8,9 +8,15 @@ public sealed record Fotografia
     public Guid EmpresaId { get; init; }
     public Guid EventoId { get; init; }
     public string NombreArchivo { get; init; } = string.Empty;
+    public string? RutaRelativa { get; init; }
+    public string? AccessToken { get; init; }
+    public string? ContentType { get; init; }
+    public long? TamanoBytes { get; init; }
     public string? Autor { get; init; }
     public DateTime FechaCaptura { get; init; }
     public string? Hash { get; init; }
+    public double? Latitud { get; init; }
+    public double? Longitud { get; init; }
     public string? MotivoOcultamiento { get; init; }
     public bool Visible { get; init; } = true;
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;

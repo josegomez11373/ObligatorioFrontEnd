@@ -3,26 +3,29 @@
 
 <PageTitle>Error</PageTitle>
 
-<h1 class="text-danger">Error</h1>
-<h2 class="text-danger">Ocurrió un error al procesar la solicitud.</h2>
+<section class="card error-page" role="alert">
+    <p class="eyebrow">Se produjo un problema</p>
+    <h1 class="text-danger">Error</h1>
+    <h2 class="text-danger">Ocurrió un error al procesar la solicitud.</h2>
 
-@if (ShowRequestId)
-{
+    @if (ShowRequestId)
+    {
+        <p>
+            <strong>Identificador de solicitud:</strong> <code>@RequestId</code>
+        </p>
+    }
+
+    <h3>Modo de desarrollo</h3>
     <p>
-        <strong>Identificador de solicitud:</strong> <code>@RequestId</code>
+        Cambiar al entorno <strong>Development</strong> mostrará información más detallada sobre el error.
     </p>
-}
-
-<h3>Modo de desarrollo</h3>
-<p>
-    Cambiar al entorno <strong>Development</strong> mostrará información más detallada sobre el error.
-</p>
-<p>
-    <strong>El entorno de desarrollo no debe habilitarse en aplicaciones publicadas.</strong>
-    Podría mostrar información sensible de las excepciones a los usuarios finales.
-    Para depuración local, establecé la variable <strong>ASPNETCORE_ENVIRONMENT</strong> en <strong>Development</strong>
-    y reiniciá la aplicación.
-</p>
+    <p>
+        <strong>El entorno de desarrollo no debe habilitarse en aplicaciones publicadas.</strong>
+        Podría mostrar información sensible de las excepciones a los usuarios finales.
+        Para depuración local, establecé la variable <strong>ASPNETCORE_ENVIRONMENT</strong> en <strong>Development</strong>
+        y reiniciá la aplicación.
+    </p>
+</section>
 
 @code{
     [CascadingParameter]

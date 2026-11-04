@@ -1,0 +1,178 @@
+@page "/historial"
+@implements IDisposable
+@inject CampanaService CampanaService
+@inject EventoService EventoService
+@inject FotografiaService FotografiaService
+@inject TareaService TareaService
+@inject PotreroService PotreroService
+@inject TipoEventoService TipoEventoService
+@inject TipoTareaService TipoTareaService
+
+<PageTitle>Historial | SIGA</PageTitle>
+
+<RoleGuard Module="SigaModule.Historial">
+    <section class="page-header">
+        <div>
+            <p class="eyebrow">Seguimiento agrícola</p>
+            <h1>Historial de campaña</h1>
+            <p class="page-intro">Consultá cronológicamente los eventos, fotografías, tareas y resultados de una campaña.</p>
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="card-header">
+            <div>
+                <p class="eyebrow">Consulta</p>
+                <h2>Filtrar historial</h2>
+            </div>
+            @if (selectedCampanaId != Guid.Empty)
+            {
+                <span class="report-count">@Entries.Count() registros</span>
+            }
+        </div>
+        <div class="filter-row">
+            <div class="form-field compact-field">
+                <label for="campana">Campaña</label>
+                <InputSelect id="campana" @bind-Value="selectedCampanaId">
+                    <option value="@Guid.Empty">Seleccioná una campaña...</option>
+                    @foreach (var campana in CampanaService.GetAll())
+                    {
+                        <option value="@campana.Id">@campana.Nombre · @campana.Estado.DisplayName()</option>
+                    }
+                </InputSelect>
+            </div>
+            <div class="form-field compact-field">
+                <label for="filtro-historial">Filtrar</label>
+                <select id="filtro-historial" @bind="filter">
+                    <option value="">Todo</option>
+                    <option value="Evento">Solo eventos</option>
+                    <option value="Tarea">Solo tareas</option>
+                </select>
+            </div>
+        </div>
+
+        @if (selectedCampanaId != Guid.Empty)
+        {
+            var entries = Entries.ToList();
+            if (!entries.Any())
+            {
+                <p class="muted">Todavía no hay registros para esta campaña.</p>
+            }
+            else
+            {
+                <ol class="timeline">
+                    @foreach (var entry in entries)
+                    {
+                        <li>
+                            <time>@entry.Fecha.ToString("dd MMM yyyy")</time>
+                            <div>
+                                <strong>@entry.Titulo</strong>
+                                <p>@entry.Descripcion</p>
+                                <small>
+                                    @entry.Detalle
+                                    @if (entry.Costo is decimal costo)
+                                    {
+                                        <span> · Costo: @costo.ToString("C")</span>
+                                    }
+                                </small>
+                                @if (entry.Fotos.Count > 0)
+                                {
+                                    <div class="photo-grid photo-grid--compact">
+                                        @foreach (var foto in entry.Fotos)
+                                        {
+                                            <figure class="photo-card @(foto.Visible ? null : "photo-hidden")">
+                                                @if (foto.Visible && FotografiaService.GetUrl(foto) is string url)
+                                                {
+                                                    <img src="@url" alt="@foto.NombreArchivo" loading="lazy" />
+                                                }
+                                                else
+                                                {
+                                                    <div class="photo-placeholder">Oculta</div>
+                                                }
+                                                <figcaption>@foto.NombreArchivo</figcaption>
+                                            </figure>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </li>
+                    }
+                </ol>
+            }
+        }
+    </section>
+</RoleGuard>
+
+@code {
+    private Guid selectedCampanaId;
+    private string filter = string.Empty;
+
+    private sealed record HistoryEntry(
+        DateTime Fecha,
+        string Tipo,
+        string Titulo,
+        string Descripcion,
+        string Detalle,
+        decimal? Costo,
+        IReadOnlyList<Fotografia> Fotos);
+
+    private IEnumerable<HistoryEntry> Entries
+    {
+        get
+        {
+            if (selectedCampanaId == Guid.Empty) return [];
+
+            var eventos = EventoService.GetAll()
+                .Where(evento => CampanaService.GetCampanaPotreroById(evento.CampanaPotreroId)?.Campana.Id == selectedCampanaId)
+                .Select(evento => new HistoryEntry(
+                    evento.Fecha,
+                    "Evento",
+                    $"{TipoEventoService.GetById(evento.TipoEventoId)?.Nombre ?? "Evento"} · {Potrero(evento.CampanaPotreroId)}",
+                    evento.Descripcion,
+                    $"Registrado por {evento.RegistradoPor ?? evento.CreatedBy ?? "—"} · {evento.Estado}",
+                    null,
+                    FotografiaService.GetByEvento(evento.Id)));
+
+            var tareas = TareaService.GetAll()
+                .Where(tarea => CampanaService.GetCampanaPotreroById(tarea.CampanaPotreroId)?.Campana.Id == selectedCampanaId)
+                .Select(tarea => new HistoryEntry(
+                    tarea.FechaPlanificada,
+                    "Tarea",
+                    $"{TipoTareaService.GetById(tarea.TipoTareaId)?.Nombre ?? "Tarea"} · {Potrero(tarea.CampanaPotreroId)}",
+                    tarea.Descripcion,
+                    $"Estado: {tarea.Estado}{(string.IsNullOrWhiteSpace(tarea.Resultado) ? string.Empty : $" · Resultado: {tarea.Resultado}")}",
+                    tarea.Costo,
+                    []));
+
+            var all = eventos.Concat(tareas);
+            return (filter switch
+            {
+                "Evento" => all.Where(entry => entry.Tipo == "Evento"),
+                "Tarea" => all.Where(entry => entry.Tipo == "Tarea"),
+                _ => all
+            }).OrderByDescending(entry => entry.Fecha);
+        }
+    }
+
+    private string Potrero(Guid assignmentId)
+    {
+        var assignment = CampanaService.GetCampanaPotreroById(assignmentId);
+        return assignment is null ? "—" : PotreroService.GetById(assignment.Value.Assignment.PotreroId)?.Nombre ?? "—";
+    }
+
+    protected override void OnInitialized()
+    {
+        EventoService.StateChanged += Reload;
+        TareaService.StateChanged += Reload;
+        FotografiaService.StateChanged += Reload;
+    }
+
+    private void Reload() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        EventoService.StateChanged -= Reload;
+        TareaService.StateChanged -= Reload;
+        FotografiaService.StateChanged -= Reload;
+    }
+}

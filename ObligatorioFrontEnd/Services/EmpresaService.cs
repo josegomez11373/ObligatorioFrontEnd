@@ -8,13 +8,18 @@ namespace ObligatorioFrontEnd.Services;
 public sealed class EmpresaService
 {
     private readonly IUserScope userScope;
+    private readonly AuditService audit;
     private readonly List<Empresa> empresas = new()
     {
         new Empresa { Id = SeedIds.AgroDelSur, Nombre = "Agro del Sur", CreatedBy = "seed" },
         new Empresa { Id = SeedIds.CamposVerdes, Nombre = "Campos Verdes", CreatedBy = "seed" },
     };
 
-    public EmpresaService(IUserScope userScope) => this.userScope = userScope;
+    public EmpresaService(IUserScope userScope, AuditService audit)
+    {
+        this.userScope = userScope;
+        this.audit = audit;
+    }
 
     public event Action? StateChanged;
 
@@ -30,8 +35,16 @@ public sealed class EmpresaService
     public Empresa Create(string nombre)
     {
         EnsureCanManage();
-        var emp = new Empresa { Nombre = nombre, CreatedBy = userScope.CurrentUser?.Email };
+        ValidateNombre(nombre, Guid.Empty);
+
+        var emp = new Empresa
+        {
+            Nombre = nombre.Trim(),
+            CreatedAt = DateTime.UtcNow,
+            CreatedBy = userScope.CurrentUser?.Email
+        };
         empresas.Add(emp);
+        audit.Record(nameof(Empresa), emp.Id, "Crear", emp.Id, null, emp);
         StateChanged?.Invoke();
         return emp;
     }
@@ -41,17 +54,22 @@ public sealed class EmpresaService
         EnsureCanManage();
         var idx = empresas.FindIndex(e => e.Id == id);
         if (idx < 0) return false;
+
         var existing = empresas[idx];
         EnsureEmpresaAccess(existing.Id);
         EnsureVersion(existing.Version, expectedVersion);
-        empresas[idx] = existing with
+        ValidateNombre(nombre, existing.Id);
+
+        var replacement = existing with
         {
-            Nombre = nombre,
+            Nombre = nombre.Trim(),
             Activo = activo,
             UpdatedAt = DateTime.UtcNow,
             UpdatedBy = userScope.CurrentUser?.Email,
             Version = existing.Version + 1
         };
+        empresas[idx] = replacement;
+        audit.Record(nameof(Empresa), existing.Id, activo ? "Actualizar" : "Desactivar", existing.Id, existing, replacement);
         StateChanged?.Invoke();
         return true;
     }
@@ -61,11 +79,36 @@ public sealed class EmpresaService
         EnsureCanManage();
         var idx = empresas.FindIndex(e => e.Id == id);
         if (idx < 0) return false;
+
         var existing = empresas[idx];
         EnsureEmpresaAccess(existing.Id);
-        empresas[idx] = existing with { Activo = false, UpdatedAt = DateTime.UtcNow, UpdatedBy = userScope.CurrentUser?.Email, Version = existing.Version + 1 };
+        if (!existing.Activo) return true;
+
+        var replacement = existing with
+        {
+            Activo = false,
+            UpdatedAt = DateTime.UtcNow,
+            UpdatedBy = userScope.CurrentUser?.Email,
+            Version = existing.Version + 1
+        };
+        empresas[idx] = replacement;
+        audit.Record(nameof(Empresa), existing.Id, "Desactivar", existing.Id, existing, replacement);
         StateChanged?.Invoke();
         return true;
+    }
+
+    private void ValidateNombre(string nombre, Guid ignoredId)
+    {
+        if (string.IsNullOrWhiteSpace(nombre))
+        {
+            throw new InvalidOperationException("El nombre de la empresa es obligatorio.");
+        }
+
+        var trimmed = nombre.Trim();
+        if (empresas.Any(e => e.Id != ignoredId && e.Nombre.Equals(trimmed, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException("Ya existe una empresa con ese nombre.");
+        }
     }
 
     private void EnsureCanManage()
@@ -89,6 +132,6 @@ public sealed class EmpresaService
         if (expectedVersion != 0 && currentVersion != expectedVersion)
         {
             throw new InvalidOperationException("El registro fue modificado por otro usuario. Recargue la información e intente nuevamente.");
-    }
+        }
     }
 }

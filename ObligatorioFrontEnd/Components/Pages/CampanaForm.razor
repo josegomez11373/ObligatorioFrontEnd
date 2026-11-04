@@ -1,0 +1,123 @@
+@using ObligatorioFrontEnd.Models
+@inject EmpresaService EmpresaService
+@inject CultivoService CultivoService
+@inject PotreroService PotreroService
+@inject EstablecimientoService EstablecimientoService
+@inject IUserScope UserScope
+
+<EditForm Model="Model" OnValidSubmit="HandleValidSubmit">
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+
+    <div class="form-field">
+        <label for="empresa">Empresa</label>
+        <InputSelect id="empresa" @bind-Value="Model.EmpresaId" disabled="@(!CanSelectEmpresa)">
+            <option value="@Guid.Empty">Seleccioná una empresa...</option>
+            @foreach (var empresa in EmpresaService.GetAll().Where(e => e.Activo || e.Id == Model.EmpresaId))
+            {
+                <option value="@empresa.Id">@empresa.Nombre</option>
+            }
+        </InputSelect>
+    </div>
+
+    <div class="form-field">
+        <label for="nombre">Nombre</label>
+        <InputText id="nombre" @bind-Value="Model.Nombre" />
+    </div>
+
+    <div class="form-field">
+        <label for="cultivo">Cultivo</label>
+        <InputSelect id="cultivo" @bind-Value="Model.CultivoId">
+            <option value="@Guid.Empty">Seleccioná un cultivo...</option>
+            @foreach (var cultivo in CultivosDisponibles)
+            {
+                <option value="@cultivo.Id">@cultivo.Nombre</option>
+            }
+        </InputSelect>
+    </div>
+
+    <div class="date-grid">
+        <div class="form-field">
+            <label for="inicio">Inicio</label>
+            <InputDate id="inicio" @bind-Value="Model.FechaInicio" />
+        </div>
+        <div class="form-field">
+            <label for="fin">Fin</label>
+            <InputDate id="fin" @bind-Value="Model.FechaFin" />
+        </div>
+    </div>
+
+    <div class="form-field">
+        <label for="estado">Estado</label>
+        <InputSelect id="estado" @bind-Value="Model.Estado">
+            @foreach (var estado in Enum.GetValues<CampanaEstado>())
+            {
+                <option value="@estado">@estado.DisplayName()</option>
+            }
+        </InputSelect>
+    </div>
+
+    <fieldset class="plot-picker">
+        <legend>Potreros</legend>
+        <p class="field-help">Seleccioná uno o más potreros de esta empresa.</p>
+        @if (!PotrerosDisponibles.Any())
+        {
+            <p class="muted">No hay potreros activos disponibles para esta empresa.</p>
+        }
+        else
+        {
+            @foreach (var potrero in PotrerosDisponibles)
+            {
+                <label class="plot-option" @key="potrero.Id">
+                    <input type="checkbox" checked="@Model.PotreroIds.Contains(potrero.Id)" @onchange="args => TogglePotrero(potrero.Id, args)" />
+                    <span><strong>@potrero.Nombre</strong><small>@EstablecimientoNombre(potrero.EstablecimientoId) · @(potrero.SuperficieHa?.ToString("G") ?? "Sin superficie") ha</small></span>
+                </label>
+            }
+        }
+    </fieldset>
+
+    <div class="form-actions">
+        <button class="primary-button" type="submit">Guardar</button>
+        <button type="button" @onclick="HandleCancel">Cancelar</button>
+    </div>
+</EditForm>
+
+@code {
+    [Parameter, EditorRequired]
+    public CampanaEditModel Model { get; set; } = new();
+
+    [Parameter]
+    public EventCallback<CampanaEditModel> OnValidSubmit { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    private bool CanSelectEmpresa => UserScope.CurrentUser?.Role == UserRole.AdministradorGeneral;
+
+    private IEnumerable<Cultivo> CultivosDisponibles => CultivoService.GetAll()
+        .Where(c => c.EmpresaId == Model.EmpresaId || c.Id == Model.CultivoId);
+
+    private IEnumerable<Potrero> PotrerosDisponibles => PotreroService.GetAll()
+        .Where(p => p.Activo && EstablecimientoService.GetById(p.EstablecimientoId)?.EmpresaId == Model.EmpresaId);
+
+    private void TogglePotrero(Guid potreroId, ChangeEventArgs args)
+    {
+        if (args.Value is bool selected && selected)
+        {
+            if (!Model.PotreroIds.Contains(potreroId))
+            {
+                Model.PotreroIds.Add(potreroId);
+            }
+        }
+        else
+        {
+            Model.PotreroIds.Remove(potreroId);
+        }
+    }
+
+    private string EstablecimientoNombre(Guid establecimientoId) => EstablecimientoService.GetById(establecimientoId)?.Nombre ?? "Establecimiento no disponible";
+
+    private Task HandleValidSubmit() => OnValidSubmit.InvokeAsync(Model);
+
+    private Task HandleCancel() => OnCancel.InvokeAsync();
+}
