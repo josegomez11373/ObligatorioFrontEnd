@@ -1,9 +1,12 @@
 @page "/empresas"
 @page "/empresas/{editId:guid}"
 @implements IDisposable
-@inject EmpresaService EmpresaService
+@inject IServicioEmpresas EmpresaService
+@inject NotificadorDatos Notificador
 @inject NavigationManager Navigation
-@inject DemoAuthService Auth
+@inject IAuthService Auth
+
+@using ObligatorioFrontEnd.Api.Contratos
 
 <PageTitle>Empresas | SIGA</PageTitle>
 
@@ -27,11 +30,11 @@
 
     <section class="card">
             <h2>Empresas (@(empresas?.Count ?? 0))</h2>
-            @if (empresas is null)
+            @if (cargando && empresas is null)
             {
                 <p>Cargando...</p>
             }
-            else if (!empresas.Any())
+            else if (empresas is null || !empresas.Any())
             {
                 <p class="muted">No hay empresas registradas.</p>
             }
@@ -46,7 +49,7 @@
                         {
                             <tr class="@(empresa.Activo ? null : "row-muted")">
                                 <td>@empresa.Nombre</td>
-                                <td>@SigaTime.Format(empresa.CreatedAt)</td>
+                                <td>@SigaTime.Format(empresa.FechaCreacion)</td>
                                 <td>@(empresa.Activo ? "Activa" : "Desactivada")</td>
                                 <td class="actions">
                                     @if (CanManage)
@@ -77,58 +80,98 @@
 </RoleGuard>
 
 @code {
-    private IReadOnlyList<Empresa>? empresas;
+    private IReadOnlyList<EmpresaDto>? empresas;
     private EmpresaEditModel editModel = new();
     private string? formError;
     private string? error;
     private bool formOpen;
+    private bool cargando;
+    private Guid? loadedEditId;
 
     [Parameter]
     public Guid? editId { get; set; }
 
     private bool CanManage => Auth.CanManage(SigaModule.Empresas);
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        EmpresaService.StateChanged += HandleChanged;
-        Load();
+        Notificador.Cambio += HandleChanged;
+        await LoadAsync();
     }
 
-    protected override void OnParametersSet()
+    protected override async Task OnParametersSetAsync()
     {
-        formOpen = editId is not null;
-        if (editId is not null)
+        if (editId is null)
         {
-            var empresa = EmpresaService.GetById(editId.Value);
-            if (empresa is not null)
+            // Se conserva el panel si es un alta en curso; al volver de una edición
+            // (por ejemplo con el enlace del menú) el panel debe cerrarse.
+            if (formOpen && editModel.Id == Guid.Empty)
             {
-                editModel = new EmpresaEditModel
-                {
-                    Id = empresa.Id,
-                    Nombre = empresa.Nombre,
-                    Activo = empresa.Activo,
-                    Version = empresa.Version
-                };
+                return;
             }
-            else
-            {
-                formError = "No se encontró la empresa solicitada.";
-            }
+
+            loadedEditId = null;
+            formOpen = false;
+            return;
         }
-        else
+
+        if (loadedEditId == editId && formOpen)
+        {
+            return;
+        }
+
+        loadedEditId = editId;
+        formOpen = true;
+        formError = null;
+
+        var empresa = await EmpresaService.GetByIdAsync(editId.Value);
+        if (empresa is null)
         {
             editModel = new EmpresaEditModel();
-            formError = null;
+            formError = "No se encontró la empresa solicitada.";
+            return;
+        }
+
+        editModel = new EmpresaEditModel
+        {
+            Id = empresa.Id,
+            Nombre = empresa.Nombre,
+            Activo = empresa.Activo,
+            Version = empresa.Version
+        };
+    }
+
+    private async Task LoadAsync()
+    {
+        cargando = true;
+
+        try
+        {
+            empresas = await EmpresaService.GetAllAsync(includeInactive: true);
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+        finally
+        {
+            cargando = false;
         }
     }
 
-    private void Load()
+    private void HandleChanged(string modulo)
     {
-        empresas = EmpresaService.GetAll();
-        InvokeAsync(StateHasChanged);
-    }
+        if (modulo != ModulosDatos.Empresas)
+        {
+            return;
+        }
 
-    private void HandleChanged() => Load();
+        _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        });
+    }
 
     private void NewEmpresa()
     {
@@ -149,7 +192,7 @@
         Navigation.NavigateTo("/empresas", replace: true);
     }
 
-    private void HandleFormSubmit(EmpresaEditModel model)
+    private async Task HandleFormSubmit(EmpresaEditModel model)
     {
         formError = null;
         error = null;
@@ -158,9 +201,9 @@
         {
             if (model.Id == Guid.Empty)
             {
-                EmpresaService.Create(model.Nombre);
+                await EmpresaService.CreateAsync(model.Nombre);
             }
-            else if (!EmpresaService.Update(model.Id, model.Nombre, model.Activo, model.Version))
+            else if (!await EmpresaService.UpdateAsync(model.Id, model.Nombre, model.Activo, model.Version))
             {
                 formError = "No se encontró la empresa.";
                 return;
@@ -176,13 +219,13 @@
         }
     }
 
-    private void Deactivate(Guid id)
+    private async Task Deactivate(Guid id)
     {
         error = null;
 
         try
         {
-            EmpresaService.Deactivate(id);
+            await EmpresaService.DeactivateAsync(id);
         }
         catch (InvalidOperationException exception)
         {
@@ -190,5 +233,5 @@
         }
     }
 
-    public void Dispose() => EmpresaService.StateChanged -= HandleChanged;
+    public void Dispose() => Notificador.Cambio -= HandleChanged;
 }

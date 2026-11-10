@@ -1,6 +1,5 @@
+@using ObligatorioFrontEnd.Api.Contratos
 @using ObligatorioFrontEnd.Models
-@inject EmpresaService EmpresaService
-@inject IUserScope UserScope
 
 <EditForm Model="Model" OnValidSubmit="HandleValidSubmit">
     <DataAnnotationsValidator />
@@ -8,13 +7,14 @@
 
     <div class="form-field">
         <label for="empresa">Empresa</label>
-        <InputSelect id="empresa" @bind-Value="Model.EmpresaId" disabled="@(!CanSelectEmpresa)">
+        <InputSelect id="empresa" @bind-Value="Model.EmpresaId" disabled="true">
             <option value="@Guid.Empty">Seleccioná una empresa...</option>
-            @foreach (var org in EmpresaService.GetAll().Where(e => e.Activo || e.Id == Model.EmpresaId))
+            @foreach (var org in Empresas)
             {
                 <option value="@org.Id">@org.Nombre</option>
             }
         </InputSelect>
+        <p class="field-help">Los establecimientos se crean en la empresa activa.</p>
     </div>
 
     <div class="form-field">
@@ -53,13 +53,15 @@
     [Parameter, EditorRequired]
     public EstablecimientoEditModel Model { get; set; } = new();
 
+    /// <summary>Empresas habilitadas para el alta: solo la empresa activa.</summary>
+    [Parameter]
+    public IReadOnlyList<EmpresaDto> Empresas { get; set; } = [];
+
     [Parameter]
     public EventCallback<EstablecimientoEditModel> OnValidSubmit { get; set; }
 
     [Parameter]
     public EventCallback OnCancel { get; set; }
-
-    private bool CanSelectEmpresa => UserScope.CurrentUser?.Role == UserRole.AdministradorGeneral;
 
     private Task HandleValidSubmit() => OnValidSubmit.InvokeAsync(Model);
 

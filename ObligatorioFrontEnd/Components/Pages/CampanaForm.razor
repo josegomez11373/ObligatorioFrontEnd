@@ -1,9 +1,5 @@
+@using ObligatorioFrontEnd.Api.Contratos
 @using ObligatorioFrontEnd.Models
-@inject EmpresaService EmpresaService
-@inject CultivoService CultivoService
-@inject PotreroService PotreroService
-@inject EstablecimientoService EstablecimientoService
-@inject IUserScope UserScope
 
 <EditForm Model="Model" OnValidSubmit="HandleValidSubmit">
     <DataAnnotationsValidator />
@@ -11,13 +7,14 @@
 
     <div class="form-field">
         <label for="empresa">Empresa</label>
-        <InputSelect id="empresa" @bind-Value="Model.EmpresaId" disabled="@(!CanSelectEmpresa)">
+        <InputSelect id="empresa" @bind-Value="Model.EmpresaId" disabled="true">
             <option value="@Guid.Empty">Seleccioná una empresa...</option>
-            @foreach (var empresa in EmpresaService.GetAll().Where(e => e.Activo || e.Id == Model.EmpresaId))
+            @foreach (var empresa in Empresas)
             {
                 <option value="@empresa.Id">@empresa.Nombre</option>
             }
         </InputSelect>
+        <p class="field-help">La campaña pertenece a la empresa activa.</p>
     </div>
 
     <div class="form-field">
@@ -49,17 +46,28 @@
 
     <div class="form-field">
         <label for="estado">Estado</label>
-        <InputSelect id="estado" @bind-Value="Model.Estado">
+        <InputSelect id="estado" @bind-Value="Model.Estado" disabled="@(!EsEdicion)">
             @foreach (var estado in Enum.GetValues<CampanaEstado>())
             {
                 <option value="@estado">@estado.DisplayName()</option>
             }
         </InputSelect>
+        @if (!EsEdicion)
+        {
+            <p class="field-help">Las campañas nuevas se crean como Planificada.</p>
+        }
     </div>
 
     <fieldset class="plot-picker">
         <legend>Potreros</legend>
-        <p class="field-help">Seleccioná uno o más potreros de esta empresa.</p>
+        @if (EsEdicion)
+        {
+            <p class="field-help">Los potreros no se pueden cambiar al editar una campaña.</p>
+        }
+        else
+        {
+            <p class="field-help">Seleccioná uno o más potreros de esta empresa.</p>
+        }
         @if (!PotrerosDisponibles.Any())
         {
             <p class="muted">No hay potreros activos disponibles para esta empresa.</p>
@@ -69,8 +77,11 @@
             @foreach (var potrero in PotrerosDisponibles)
             {
                 <label class="plot-option" @key="potrero.Id">
-                    <input type="checkbox" checked="@Model.PotreroIds.Contains(potrero.Id)" @onchange="args => TogglePotrero(potrero.Id, args)" />
-                    <span><strong>@potrero.Nombre</strong><small>@EstablecimientoNombre(potrero.EstablecimientoId) · @(potrero.SuperficieHa?.ToString("G") ?? "Sin superficie") ha</small></span>
+                    <input type="checkbox"
+                           checked="@Model.PotreroIds.Contains(potrero.Id)"
+                           disabled="@EsEdicion"
+                           @onchange="args => TogglePotrero(potrero.Id, args)" />
+                    <span><strong>@potrero.Nombre</strong><small>@potrero.EstablecimientoNombre · @(potrero.SuperficieHa?.ToString("G") ?? "Sin superficie") ha</small></span>
                 </label>
             }
         }
@@ -86,23 +97,36 @@
     [Parameter, EditorRequired]
     public CampanaEditModel Model { get; set; } = new();
 
+    /// <summary>Empresas habilitadas: solo la empresa activa.</summary>
+    [Parameter]
+    public IReadOnlyList<EmpresaDto> Empresas { get; set; } = [];
+
+    [Parameter]
+    public IReadOnlyList<CultivoDto> Cultivos { get; set; } = [];
+
+    [Parameter]
+    public IReadOnlyList<PotreroDto> Potreros { get; set; } = [];
+
+    [Parameter]
+    public bool EsEdicion { get; set; }
+
     [Parameter]
     public EventCallback<CampanaEditModel> OnValidSubmit { get; set; }
 
     [Parameter]
     public EventCallback OnCancel { get; set; }
 
-    private bool CanSelectEmpresa => UserScope.CurrentUser?.Role == UserRole.AdministradorGeneral;
+    private IEnumerable<CultivoDto> CultivosDisponibles => Cultivos
+        .Where(cultivo => (cultivo.Activo || cultivo.Id == Model.CultivoId) &&
+                          (Model.EmpresaId == Guid.Empty || cultivo.EmpresaId == Model.EmpresaId));
 
-    private IEnumerable<Cultivo> CultivosDisponibles => CultivoService.GetAll()
-        .Where(c => c.EmpresaId == Model.EmpresaId || c.Id == Model.CultivoId);
-
-    private IEnumerable<Potrero> PotrerosDisponibles => PotreroService.GetAll()
-        .Where(p => p.Activo && EstablecimientoService.GetById(p.EstablecimientoId)?.EmpresaId == Model.EmpresaId);
+    private IEnumerable<PotreroDto> PotrerosDisponibles => Potreros
+        .Where(potrero => (potrero.Activo || Model.PotreroIds.Contains(potrero.Id)) &&
+                          (Model.EmpresaId == Guid.Empty || potrero.EmpresaId == Model.EmpresaId));
 
     private void TogglePotrero(Guid potreroId, ChangeEventArgs args)
     {
-        if (args.Value is bool selected && selected)
+        if (args.Value is true)
         {
             if (!Model.PotreroIds.Contains(potreroId))
             {
@@ -114,8 +138,6 @@
             Model.PotreroIds.Remove(potreroId);
         }
     }
-
-    private string EstablecimientoNombre(Guid establecimientoId) => EstablecimientoService.GetById(establecimientoId)?.Nombre ?? "Establecimiento no disponible";
 
     private Task HandleValidSubmit() => OnValidSubmit.InvokeAsync(Model);
 

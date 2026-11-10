@@ -1,8 +1,10 @@
+using ObligatorioFrontEnd.Api;
+using ObligatorioFrontEnd.Api.Contratos;
 using ObligatorioFrontEnd.Models;
 
 namespace ObligatorioFrontEnd.Services;
 
-public sealed class CampanaService
+public sealed class CampanaService : IServicioCampanas
 {
     private readonly IUserScope userScope;
     private readonly CultivoService cultivoService;
@@ -10,6 +12,7 @@ public sealed class CampanaService
     private readonly EstablecimientoService establecimientoService;
     private readonly EmpresaService empresaService;
     private readonly AuditService audit;
+    private readonly NotificadorDatos notificador;
 
     private readonly List<Campana> campanas =
     [
@@ -48,7 +51,8 @@ public sealed class CampanaService
         PotreroService potreroService,
         EstablecimientoService establecimientoService,
         EmpresaService empresaService,
-        AuditService audit)
+        AuditService audit,
+        NotificadorDatos notificador)
     {
         this.userScope = userScope;
         this.cultivoService = cultivoService;
@@ -56,6 +60,7 @@ public sealed class CampanaService
         this.establecimientoService = establecimientoService;
         this.empresaService = empresaService;
         this.audit = audit;
+        this.notificador = notificador;
     }
 
     public event Action? StateChanged;
@@ -130,7 +135,7 @@ public sealed class CampanaService
         campanas.Add(campana);
         AddPotreros(campana, potreroIds);
         audit.Record(nameof(Campana), campana.Id, "Crear", campana.EmpresaId, null, campana);
-        StateChanged?.Invoke();
+        Notify();
         return campana;
     }
 
@@ -168,7 +173,7 @@ public sealed class CampanaService
         campanas[index] = saved;
         SyncPotreros(saved, potreroIds);
         audit.Record(nameof(Campana), existing.Id, "Actualizar", existing.EmpresaId, existing, saved);
-        StateChanged?.Invoke();
+        Notify();
         return true;
     }
 
@@ -205,7 +210,7 @@ public sealed class CampanaService
             CloseCampaign(assignment.Value.Campana, fechaFin);
         }
 
-        StateChanged?.Invoke();
+        Notify();
         return true;
     }
 
@@ -245,8 +250,151 @@ public sealed class CampanaService
         }
 
         audit.Record(nameof(Campana), existing.Id, "Cerrar", existing.EmpresaId, existing, saved);
-        StateChanged?.Invoke();
+        Notify();
         return true;
+    }
+
+    public Task<IReadOnlyList<CampanaDto>> GetAllAsync(
+        bool incluirAnuladas = false,
+        CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<CampanaDto> result = GetAll(includeInactive: incluirAnuladas)
+            .Select(ADto)
+            .ToList();
+
+        return Task.FromResult(result);
+    }
+
+    public Task<CampanaDto?> GetByIdAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        var campana = GetById(id);
+        return Task.FromResult(campana is null ? null : ADto(campana));
+    }
+
+    public Task<CampanaDto> CreateAsync(
+        CrearCampanaDto dto,
+        CancellationToken cancellationToken = default)
+    {
+        var empresaId = dto.EmpresaId
+            ?? userScope.CurrentUser?.EmpresaId
+            ?? throw new InvalidOperationException("Debe indicar la empresa de la campaña.");
+
+        var creada = Create(
+            new Campana
+            {
+                EmpresaId = empresaId,
+                Nombre = dto.Nombre,
+                CultivoId = dto.CultivoId,
+                FechaInicio = dto.FechaInicio,
+                FechaFin = dto.FechaFin,
+                // La API siempre crea las campañas en estado Planificada.
+                Estado = CampanaEstado.Planificada
+            },
+            dto.PotreroIds);
+
+        return Task.FromResult(ADto(creada));
+    }
+
+    public Task<CampanaDto?> UpdateAsync(
+        ActualizarCampanaDto dto,
+        CancellationToken cancellationToken = default)
+    {
+        var existing = campanas.SingleOrDefault(campana => campana.Id == dto.Id);
+        if (existing is null)
+        {
+            return Task.FromResult<CampanaDto?>(null);
+        }
+
+        // El contrato de la API no envía potreros: se conservan los vigentes.
+        var potreroIds = campanaPotreros
+            .Where(asignacion => asignacion.CampanaId == dto.Id && asignacion.Estado != CampanaEstado.Anulada)
+            .Select(asignacion => asignacion.PotreroId)
+            .ToList();
+
+        var actualizada = Update(
+            new Campana
+            {
+                Id = dto.Id,
+                EmpresaId = existing.EmpresaId,
+                Nombre = dto.Nombre,
+                CultivoId = dto.CultivoId,
+                FechaInicio = dto.FechaInicio,
+                FechaFin = dto.FechaFin,
+                Estado = dto.Estado.AModelo()
+            },
+            potreroIds,
+            dto.Version);
+
+        return Task.FromResult(
+            actualizada ? ADto(campanas.Single(campana => campana.Id == dto.Id)) : null);
+    }
+
+    public Task<bool> AnularAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureCanManage();
+
+        var index = campanas.FindIndex(campana => campana.Id == id);
+        if (index < 0)
+        {
+            return Task.FromResult(false);
+        }
+
+        var existing = campanas[index];
+        EnsureAccess(existing);
+
+        if (existing.Estado == CampanaEstado.Anulada)
+        {
+            return Task.FromResult(true);
+        }
+
+        var end = (existing.FechaFin ?? SigaTime.TodayLocal).Date;
+        var saved = existing with
+        {
+            Estado = CampanaEstado.Anulada,
+            FechaFin = end,
+            UpdatedAt = DateTime.UtcNow,
+            UpdatedBy = userScope.CurrentUser?.Email,
+            Version = existing.Version + 1
+        };
+        campanas[index] = saved;
+
+        for (var i = 0; i < campanaPotreros.Count; i++)
+        {
+            var assignment = campanaPotreros[i];
+            if (assignment.CampanaId != id || assignment.Estado == CampanaEstado.Anulada) continue;
+            campanaPotreros[i] = assignment with
+            {
+                Estado = CampanaEstado.Anulada,
+                FechaFin = end,
+                UpdatedAt = DateTime.UtcNow,
+                UpdatedBy = userScope.CurrentUser?.Email,
+                Version = assignment.Version + 1
+            };
+        }
+
+        audit.Record(nameof(Campana), existing.Id, "Anular", existing.EmpresaId, existing, saved);
+        Notify();
+        return Task.FromResult(true);
+    }
+
+    private CampanaDto ADto(Campana campana)
+    {
+        var cultivoNombre = cultivoService.GetById(campana.CultivoId)?.Nombre ?? "—";
+        var potreros = GetPotreros(campana.Id, includeInactive: true)
+            .Select(asignacion => asignacion.AContrato(
+                potreroService.GetById(asignacion.PotreroId)?.Nombre ?? "—"));
+
+        return campana.AContrato(cultivoNombre, potreros);
+    }
+
+    private void Notify()
+    {
+        StateChanged?.Invoke();
+        notificador.Notificar(ModulosDatos.Campanas);
     }
 
     private void CloseCampaign(Campana campana, DateTime? fechaFin)

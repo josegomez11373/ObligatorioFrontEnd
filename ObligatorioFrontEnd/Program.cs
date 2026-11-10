@@ -1,4 +1,6 @@
 using System.Globalization;
+using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
+using ObligatorioFrontEnd.Api;
 using ObligatorioFrontEnd.Components;
 using ObligatorioFrontEnd.Services;
 
@@ -11,9 +13,66 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+// DemoAuthService se registra siempre: UserService lo usa para mantener el padrón
+// mock, incluso cuando el login real está activo.
 builder.Services.AddScoped<DemoAuthService>();
-builder.Services.AddScoped<IUserScope>(sp => sp.GetRequiredService<DemoAuthService>());
+builder.Services.AddScoped<TokenStore>();
+builder.Services.AddScoped<NotificadorDatos>();
+
+// La sesión vive en el servidor y el navegador solo guarda un id opaco; así el F5
+// no pierde el login. El almacén es singleton porque comparte datos entre circuitos.
+builder.Services.AddSingleton<AlmacenSesiones>();
+builder.Services.AddScoped<ProtectedSessionStorage>();
+builder.Services.AddScoped<SesionPersistencia>();
+builder.Services.AddScoped<IContextoEmpresa, ContextoEmpresa>();
+
+var useApi = builder.Configuration.GetValue<bool>("ApiSiga:UseApi");
+
+if (useApi)
+{
+    var baseUrl = builder.Configuration["ApiSiga:BaseUrl"] ?? "http://localhost:5100/";
+
+    builder.Services.AddHttpClient<ClienteApi>(http =>
+    {
+        http.BaseAddress = new Uri(baseUrl);
+        http.Timeout = TimeSpan.FromSeconds(30);
+    });
+
+    builder.Services.AddScoped<SesionService>();
+    builder.Services.AddScoped<IAuthService>(sp => sp.GetRequiredService<SesionService>());
+
+    builder.Services.AddScoped<ServicioEmpresasApi>();
+    builder.Services.AddScoped<ServicioEstablecimientosApi>();
+    builder.Services.AddScoped<ServicioPotrerosApi>();
+    builder.Services.AddScoped<ServicioCultivosApi>();
+    builder.Services.AddScoped<ServicioCampanasApi>();
+    builder.Services.AddScoped<ServicioUsuariosApi>();
+
+    builder.Services.AddScoped<IServicioEmpresas>(sp => sp.GetRequiredService<ServicioEmpresasApi>());
+    builder.Services.AddScoped<IServicioEstablecimientos>(sp => sp.GetRequiredService<ServicioEstablecimientosApi>());
+    builder.Services.AddScoped<IServicioPotreros>(sp => sp.GetRequiredService<ServicioPotrerosApi>());
+    builder.Services.AddScoped<IServicioCultivos>(sp => sp.GetRequiredService<ServicioCultivosApi>());
+    builder.Services.AddScoped<IServicioCampanas>(sp => sp.GetRequiredService<ServicioCampanasApi>());
+    builder.Services.AddScoped<IServicioUsuarios>(sp => sp.GetRequiredService<ServicioUsuariosApi>());
+}
+else
+{
+    builder.Services.AddScoped<IAuthService>(sp => sp.GetRequiredService<DemoAuthService>());
+
+    builder.Services.AddScoped<IServicioEmpresas>(sp => sp.GetRequiredService<EmpresaService>());
+    builder.Services.AddScoped<IServicioEstablecimientos>(sp => sp.GetRequiredService<EstablecimientoService>());
+    builder.Services.AddScoped<IServicioPotreros>(sp => sp.GetRequiredService<PotreroService>());
+    builder.Services.AddScoped<IServicioCultivos>(sp => sp.GetRequiredService<CultivoService>());
+    builder.Services.AddScoped<IServicioCampanas>(sp => sp.GetRequiredService<CampanaService>());
+    builder.Services.AddScoped<IServicioUsuarios>(sp => sp.GetRequiredService<UserService>());
+}
+
+builder.Services.AddScoped<IUserScope>(sp => sp.GetRequiredService<IAuthService>());
 builder.Services.AddScoped<AuditService>();
+
+// EmpresaService sigue registrado en modo API porque los módulos mock
+// (EstablecimientoService, UserService, etc.) lo inyectan concretamente.
 builder.Services.AddScoped<EmpresaService>();
 builder.Services.AddScoped<EstablecimientoService>();
 builder.Services.AddScoped<PotreroService>();

@@ -1,12 +1,14 @@
 @page "/potreros"
 @page "/potreros/{editId:guid}"
 @implements IDisposable
-@inject PotreroService PotreroService
-@inject EstablecimientoService EstablecimientoService
+@inject IServicioPotreros PotreroService
+@inject IServicioEstablecimientos EstablecimientoService
+@inject IContextoEmpresa Contexto
+@inject NotificadorDatos Notificador
 @inject NavigationManager Navigation
-@inject DemoAuthService Auth
+@inject IAuthService Auth
 
-@using ObligatorioFrontEnd.Models
+@using ObligatorioFrontEnd.Api.Contratos
 
 <PageTitle>Potreros | SIGA</PageTitle>
 
@@ -29,49 +31,49 @@
     }
 
     <section class="card">
-            <h2>Potreros (@(potreros?.Count ?? 0))</h2>
-            @if (potreros is null)
-            {
-                <p>Cargando...</p>
-            }
-            else if (!potreros.Any())
-            {
-                <p class="muted">No hay potreros registrados.</p>
-            }
-            else
-            {
-                <table class="table">
-                    <thead>
-                        <tr><th>Establecimiento</th><th>Nombre</th><th>Superficie (ha)</th><th>Estado</th><th></th></tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var potrero in potreros)
-                        {
-                            <tr class="@(potrero.Activo ? null : "row-muted")">
-                                <td>@(EstablecimientoService.GetById(potrero.EstablecimientoId)?.Nombre ?? "—")</td>
-                                <td>@potrero.Nombre</td>
-                                <td>@(potrero.SuperficieHa?.ToString("G") ?? "—")</td>
-                                <td>@(potrero.Activo ? "Activo" : "Desactivado")</td>
-                                <td class="actions">
-                                    @if (CanManage)
+        <h2>Potreros (@(potreros?.Count ?? 0))</h2>
+        @if (cargando && potreros is null)
+        {
+            <p>Cargando...</p>
+        }
+        else if (potreros is null || !potreros.Any())
+        {
+            <p class="muted">No hay potreros registrados para la empresa activa.</p>
+        }
+        else
+        {
+            <table class="table">
+                <thead>
+                    <tr><th>Establecimiento</th><th>Nombre</th><th>Superficie (ha)</th><th>Estado</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var potrero in potreros)
+                    {
+                        <tr class="@(potrero.Activo ? null : "row-muted")">
+                            <td>@potrero.EstablecimientoNombre</td>
+                            <td>@potrero.Nombre</td>
+                            <td>@(potrero.SuperficieHa?.ToString("G") ?? "—")</td>
+                            <td>@(potrero.Activo ? "Activo" : "Desactivado")</td>
+                            <td class="actions">
+                                @if (CanManage)
+                                {
+                                    <button type="button" @onclick="() => EditPotrero(potrero.Id)">Editar</button>
+                                    @if (potrero.Activo)
                                     {
-                                        <button type="button" @onclick="() => EditPotrero(potrero.Id)">Editar</button>
-                                        @if (potrero.Activo)
-                                        {
-                                            <button type="button" class="destructive" @onclick="() => Deactivate(potrero.Id)">Desactivar</button>
-                                        }
+                                        <button type="button" class="destructive" @onclick="() => Deactivate(potrero.Id)">Desactivar</button>
                                     }
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            }
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
     </section>
     @if (CanManage)
     {
         <SidePanel IsOpen="formOpen" Title="@(editModel.Id == Guid.Empty ? "Crear potrero" : "Editar potrero")" OnClose="Cancel">
-            <PotreroForm Model="editModel" OnValidSubmit="HandleFormSubmit" OnCancel="Cancel" />
+            <PotreroForm Model="editModel" Establecimientos="EstablecimientosForm" OnValidSubmit="HandleFormSubmit" OnCancel="Cancel" />
             @if (!string.IsNullOrWhiteSpace(formError))
             {
                 <p class="form-error" role="alert">@formError</p>
@@ -81,61 +83,130 @@
 </RoleGuard>
 
 @code {
-    private IReadOnlyList<Potrero>? potreros;
+    private IReadOnlyList<PotreroDto>? potreros;
+    private IReadOnlyList<EstablecimientoDto> establecimientos = [];
     private PotreroEditModel editModel = new();
     private string? formError;
     private string? error;
     private bool formOpen;
+    private bool cargando;
+    private Guid? loadedEditId;
 
     [Parameter]
     public Guid? editId { get; set; }
 
     private bool CanManage => Auth.CanManage(SigaModule.Potreros);
 
-    protected override void OnInitialized()
+    private IReadOnlyList<EstablecimientoDto> EstablecimientosForm => establecimientos;
+
+    protected override async Task OnInitializedAsync()
     {
-        PotreroService.StateChanged += HandleChanged;
-        Load();
+        Notificador.Cambio += HandleChanged;
+        await LoadAsync();
     }
 
-    protected override void OnParametersSet()
+    protected override async Task OnParametersSetAsync()
     {
-        formOpen = editId is not null;
-        if (editId is not null)
+        await LoadEditAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        cargando = true;
+
+        try
         {
-            var potrero = PotreroService.GetById(editId.Value);
-            if (potrero is not null)
+            var potrerosTask = PotreroService.GetAllAsync(incluirInactivos: true);
+            var establecimientosTask = EstablecimientoService.GetAllAsync(incluirInactivos: true);
+            await Task.WhenAll(potrerosTask, establecimientosTask);
+
+            var activa = Contexto.EmpresaActivaId;
+            var listaEstablecimientos = await establecimientosTask;
+            establecimientos = activa is Guid empresaId
+                ? listaEstablecimientos.Where(establecimiento => establecimiento.EmpresaId == empresaId).ToList()
+                : listaEstablecimientos;
+
+            var listaPotreros = await potrerosTask;
+            potreros = activa is Guid empresaPotrero
+                ? listaPotreros.Where(potrero => potrero.EmpresaId == empresaPotrero).ToList()
+                : listaPotreros;
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+        finally
+        {
+            cargando = false;
+        }
+    }
+
+    private async Task LoadEditAsync()
+    {
+        if (editId is not Guid id)
+        {
+            if (formOpen && editModel.Id == Guid.Empty)
             {
-                editModel = new PotreroEditModel
-                {
-                    Id = potrero.Id,
-                    EstablecimientoId = potrero.EstablecimientoId,
-                    Nombre = potrero.Nombre,
-                    SuperficieHa = potrero.SuperficieHa,
-                    Limites = potrero.Limites,
-                    Activo = potrero.Activo,
-                    Version = potrero.Version
-                };
+                return;
             }
-            else
+
+            loadedEditId = null;
+            formOpen = false;
+            return;
+        }
+
+        if (loadedEditId == id && formOpen)
+        {
+            return;
+        }
+
+        loadedEditId = id;
+        formOpen = true;
+        formError = null;
+
+        try
+        {
+            var potrero = await PotreroService.GetByIdAsync(id);
+            if (potrero is null)
             {
+                editModel = NewModel();
                 formError = "No se encontró el potrero solicitado.";
+                return;
             }
+
+            editModel = new PotreroEditModel
+            {
+                Id = potrero.Id,
+                EstablecimientoId = potrero.EstablecimientoId,
+                Nombre = potrero.Nombre,
+                SuperficieHa = potrero.SuperficieHa,
+                Limites = potrero.Limites,
+                Activo = potrero.Activo,
+                Version = potrero.Version
+            };
         }
-        else
+        catch (InvalidOperationException exception)
         {
-            editModel = NewModel();
-            formError = null;
+            formError = exception.Message;
         }
     }
 
-    private void Load()
+    private void HandleChanged(string modulo)
     {
-        potreros = PotreroService.GetAll();
-        InvokeAsync(StateHasChanged);
-    }
+        if (modulo != ModulosDatos.Potreros &&
+            modulo != ModulosDatos.Establecimientos &&
+            modulo != ModulosDatos.EmpresaActiva)
+        {
+            return;
+        }
 
-    private void HandleChanged() => Load();
+        _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            await LoadEditAsync();
+            StateHasChanged();
+        });
+    }
 
     private void NewPotrero()
     {
@@ -156,7 +227,7 @@
         Navigation.NavigateTo("/potreros", replace: true);
     }
 
-    private void HandleFormSubmit(PotreroEditModel model)
+    private async Task HandleFormSubmit(PotreroEditModel model)
     {
         formError = null;
         error = null;
@@ -165,37 +236,35 @@
         {
             if (model.Id == Guid.Empty)
             {
-                PotreroService.Create(new Potrero
+                await PotreroService.CreateAsync(new CrearPotreroDto
                 {
                     EstablecimientoId = model.EstablecimientoId,
                     Nombre = model.Nombre.Trim(),
                     SuperficieHa = model.SuperficieHa,
-                    Limites = model.Limites?.Trim(),
-                    Activo = model.Activo
+                    Limites = model.Limites?.Trim()
                 });
             }
             else
             {
-                var updated = new Potrero
+                var actualizado = await PotreroService.UpdateAsync(new ActualizarPotreroDto
                 {
                     Id = model.Id,
                     EstablecimientoId = model.EstablecimientoId,
                     Nombre = model.Nombre.Trim(),
                     SuperficieHa = model.SuperficieHa,
                     Limites = model.Limites?.Trim(),
-                    Activo = model.Activo
-                };
+                    Activo = model.Activo,
+                    Version = model.Version
+                });
 
-                if (!PotreroService.Update(updated, model.Version))
+                if (actualizado is null)
                 {
                     formError = "No se encontró el potrero.";
                     return;
                 }
             }
 
-            editModel = NewModel();
-            formOpen = false;
-            Navigation.NavigateTo("/potreros", replace: true);
+            Cancel();
         }
         catch (InvalidOperationException exception)
         {
@@ -203,13 +272,13 @@
         }
     }
 
-    private void Deactivate(Guid id)
+    private async Task Deactivate(Guid id)
     {
         error = null;
 
         try
         {
-            PotreroService.Deactivate(id);
+            await PotreroService.DeactivateAsync(id);
         }
         catch (InvalidOperationException exception)
         {
@@ -219,8 +288,8 @@
 
     private PotreroEditModel NewModel() => new()
     {
-        EstablecimientoId = EstablecimientoService.GetAll().FirstOrDefault()?.Id ?? Guid.Empty
+        EstablecimientoId = establecimientos.FirstOrDefault(establecimiento => establecimiento.Activo)?.Id ?? Guid.Empty
     };
 
-    public void Dispose() => PotreroService.StateChanged -= HandleChanged;
+    public void Dispose() => Notificador.Cambio -= HandleChanged;
 }

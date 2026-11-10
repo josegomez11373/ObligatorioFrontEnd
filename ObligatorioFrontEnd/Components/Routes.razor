@@ -1,6 +1,43 @@
-﻿<Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
-    <Found Context="routeData">
-        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
-        <FocusOnNavigate RouteData="routeData" Selector="h1" />
-    </Found>
-</Router>
+﻿@inject IAuthService Auth
+@inject IContextoEmpresa Contexto
+
+@if (!inicializado)
+{
+    <main class="auth-redirect" aria-live="polite">Restaurando sesión...</main>
+}
+else
+{
+    <Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
+        <Found Context="routeData">
+            <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+            <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        </Found>
+    </Router>
+}
+
+@code {
+    private bool inicializado;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || inicializado)
+        {
+            return;
+        }
+
+        try
+        {
+            // La sesión real vive en el servidor; el navegador solo guarda un id
+            // opaco. El restore necesita JS, por eso corre después del primer render.
+            if (await Auth.RestaurarAsync())
+            {
+                await Contexto.InicializarAsync();
+            }
+        }
+        finally
+        {
+            inicializado = true;
+            StateHasChanged();
+        }
+    }
+}

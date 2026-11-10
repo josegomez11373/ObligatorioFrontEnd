@@ -1,6 +1,5 @@
+@using ObligatorioFrontEnd.Api.Contratos
 @using ObligatorioFrontEnd.Models
-@inject EstablecimientoService EstablecimientoService
-@inject IUserScope UserScope
 
 <EditForm Model="Model" OnValidSubmit="HandleValidSubmit">
     <DataAnnotationsValidator />
@@ -10,7 +9,7 @@
         <label for="est">Establecimiento</label>
         <InputSelect id="est" @bind-Value="Model.EstablecimientoId">
             <option value="@Guid.Empty">Seleccioná un establecimiento...</option>
-            @foreach (var est in EstablecimientoService.GetAll().Where(e => e.Activo || e.Id == Model.EstablecimientoId))
+            @foreach (var est in Establecimientos.Where(e => e.Activo || e.Id == Model.EstablecimientoId))
             {
                 <option value="@est.Id">@est.Nombre</option>
             }
@@ -47,6 +46,10 @@
 @code {
     [Parameter, EditorRequired]
     public PotreroEditModel Model { get; set; } = new();
+
+    /// <summary>Establecimientos de la empresa activa.</summary>
+    [Parameter]
+    public IReadOnlyList<EstablecimientoDto> Establecimientos { get; set; } = [];
 
     [Parameter]
     public EventCallback<PotreroEditModel> OnValidSubmit { get; set; }

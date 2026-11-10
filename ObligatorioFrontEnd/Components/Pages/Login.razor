@@ -1,6 +1,7 @@
 @page "/login"
 @layout EmptyLayout
-@inject DemoAuthService Auth
+@inject IAuthService Auth
+@inject IContextoEmpresa Contexto
 @inject NavigationManager Navigation
 
 <PageTitle>Iniciar sesión | SIGA</PageTitle>
@@ -13,38 +14,35 @@
             <h1>La información del campo, en un solo lugar.</h1>
             <p>Registra campañas, eventos y tareas con una vista clara de cada establecimiento.</p>
         </div>
-        <p class="intro-note">Ambiente de demostración para la primera versión de SIGA.</p>
+        <p class="intro-note">Acceso con las credenciales de SIGA.</p>
     </section>
 
     <section class="login-panel" aria-labelledby="login-title">
         <div class="login-card">
             <p class="eyebrow">Acceso seguro</p>
             <h2 id="login-title">Iniciar sesión</h2>
-            <p class="muted">Elegí un perfil de prueba para recorrer la aplicación.</p>
+            <p class="muted">Ingresá con tu email y contraseña.</p>
 
             <EditForm Model="form" OnValidSubmit="SignIn">
                 <DataAnnotationsValidator />
                 <div class="form-field">
-                    <label for="email">Usuario de prueba</label>
-                    <InputSelect id="email" @bind-Value="form.Email">
-                        @foreach (var user in Auth.Users)
-                        {
-                            <option value="@user.Email">@user.Role.DisplayName() — @user.Email</option>
-                        }
-                    </InputSelect>
+                    <label for="email">Email</label>
+                    <InputText id="email" type="email" autocomplete="username" @bind-Value="form.Email" />
                 </div>
                 <div class="form-field">
                     <label for="password">Contraseña</label>
-                    <InputText id="password" type="password" @bind-Value="form.Password" />
+                    <InputText id="password" type="password" autocomplete="current-password" @bind-Value="form.Password" />
                 </div>
                 @if (!string.IsNullOrWhiteSpace(error))
                 {
                     <p class="form-error" role="alert">@error</p>
                 }
-                <button class="primary-button" type="submit">Ingresar a SIGA <span>→</span></button>
+                <button class="primary-button" type="submit" disabled="@submitting">
+                    @(submitting ? "Ingresando..." : "Ingresar a SIGA") <span>→</span>
+                </button>
             </EditForm>
 
-            <p class="demo-hint">Contraseña de demostración: <code>siga2026</code></p>
+            <p class="demo-hint">Contraseña del ambiente de demostración: <code>siga2026</code></p>
         </div>
     </section>
 </main>
@@ -52,6 +50,7 @@
 @code {
     private readonly LoginForm form = new() { Email = "admin@siga.demo" };
     private string? error;
+    private bool submitting;
 
     protected override void OnInitialized()
     {
@@ -61,15 +60,29 @@
         }
     }
 
-    private void SignIn()
+    private async Task SignIn()
     {
-        error = Auth.Login(form.Email, form.Password)
-            ? null
-            : "La contraseña de demostración no es correcta.";
+        error = null;
+        submitting = true;
 
-        if (error is null)
+        try
         {
+            if (!await Auth.LoginAsync(form.Email, form.Password))
+            {
+                error = "Email o contraseña incorrectos.";
+                return;
+            }
+
+            await Contexto.InicializarAsync();
             Navigation.NavigateTo("/", replace: true);
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+        finally
+        {
+            submitting = false;
         }
     }
 

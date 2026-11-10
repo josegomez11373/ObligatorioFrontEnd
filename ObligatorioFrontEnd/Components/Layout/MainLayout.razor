@@ -1,6 +1,7 @@
 @inherits LayoutComponentBase
 @implements IDisposable
-@inject DemoAuthService Auth
+@inject IAuthService Auth
+@inject IContextoEmpresa Contexto
 @inject NavigationManager Navigation
 
 @if (Auth.CurrentUser is null)
@@ -63,6 +64,18 @@ else
             </nav>
 
             <div class="sidebar-footer">
+                @if (Contexto.PuedeCambiar && Contexto.Disponibles.Count > 1)
+                {
+                    <div class="company-picker">
+                        <label for="empresa-activa">Empresa activa</label>
+                        <select id="empresa-activa" @onchange="SeleccionarEmpresa">
+                            @foreach (var empresa in Contexto.Disponibles)
+                            {
+                                <option value="@empresa.Id" selected="@(empresa.Id == Contexto.EmpresaActivaId)">@empresa.Nombre</option>
+                            }
+                        </select>
+                    </div>
+                }
                 <div class="user-summary">
                     <span class="avatar">@Auth.CurrentUser.Initials</span>
                     <span><strong>@Auth.CurrentUser.Name</strong><small>@Auth.CurrentUser.Role.DisplayName()</small></span>
@@ -87,6 +100,8 @@ else
     protected override void OnInitialized()
     {
         Auth.StateChanged += HandleAuthenticationChanged;
+        Auth.Expirada += HandleExpirada;
+        Contexto.Cambiada += HandleContextChanged;
 
         if (!Auth.IsAuthenticated)
         {
@@ -94,13 +109,36 @@ else
         }
     }
 
-    private void Logout()
+    private async Task Logout()
     {
-        Auth.Logout();
+        Contexto.Limpiar();
+        await Auth.LogoutAsync();
         Navigation.NavigateTo("/login", replace: true);
+    }
+
+    private async Task SeleccionarEmpresa(ChangeEventArgs args)
+    {
+        if (Guid.TryParse(args.Value?.ToString(), out var empresaId))
+        {
+            await Contexto.SeleccionarAsync(empresaId);
+        }
     }
 
     private void HandleAuthenticationChanged() => InvokeAsync(StateHasChanged);
 
-    public void Dispose() => Auth.StateChanged -= HandleAuthenticationChanged;
+    private void HandleContextChanged() => InvokeAsync(StateHasChanged);
+
+    private void HandleExpirada() => InvokeAsync(() =>
+    {
+        Contexto.Limpiar();
+        Navigation.NavigateTo("/login", replace: true);
+        StateHasChanged();
+    });
+
+    public void Dispose()
+    {
+        Auth.StateChanged -= HandleAuthenticationChanged;
+        Auth.Expirada -= HandleExpirada;
+        Contexto.Cambiada -= HandleContextChanged;
+    }
 }

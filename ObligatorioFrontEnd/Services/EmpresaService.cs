@@ -1,24 +1,28 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using ObligatorioFrontEnd.Api;
+using ObligatorioFrontEnd.Api.Contratos;
 using ObligatorioFrontEnd.Models;
 
 namespace ObligatorioFrontEnd.Services;
 
-public sealed class EmpresaService
+public sealed class EmpresaService : IServicioEmpresas
 {
     private readonly IUserScope userScope;
     private readonly AuditService audit;
+    private readonly NotificadorDatos notificador;
     private readonly List<Empresa> empresas = new()
     {
         new Empresa { Id = SeedIds.AgroDelSur, Nombre = "Agro del Sur", CreatedBy = "seed" },
         new Empresa { Id = SeedIds.CamposVerdes, Nombre = "Campos Verdes", CreatedBy = "seed" },
     };
 
-    public EmpresaService(IUserScope userScope, AuditService audit)
+    public EmpresaService(IUserScope userScope, AuditService audit, NotificadorDatos notificador)
     {
         this.userScope = userScope;
         this.audit = audit;
+        this.notificador = notificador;
     }
 
     public event Action? StateChanged;
@@ -45,7 +49,7 @@ public sealed class EmpresaService
         };
         empresas.Add(emp);
         audit.Record(nameof(Empresa), emp.Id, "Crear", emp.Id, null, emp);
-        StateChanged?.Invoke();
+        Notify();
         return emp;
     }
 
@@ -70,7 +74,7 @@ public sealed class EmpresaService
         };
         empresas[idx] = replacement;
         audit.Record(nameof(Empresa), existing.Id, activo ? "Actualizar" : "Desactivar", existing.Id, existing, replacement);
-        StateChanged?.Invoke();
+        Notify();
         return true;
     }
 
@@ -93,8 +97,49 @@ public sealed class EmpresaService
         };
         empresas[idx] = replacement;
         audit.Record(nameof(Empresa), existing.Id, "Desactivar", existing.Id, existing, replacement);
-        StateChanged?.Invoke();
+        Notify();
         return true;
+    }
+
+    public Task<IReadOnlyList<EmpresaDto>> GetAllAsync(
+        bool includeInactive = false,
+        CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<EmpresaDto> result = GetAll()
+            .Where(empresa => includeInactive || empresa.Activo)
+            .Select(empresa => empresa.AContrato())
+            .ToList();
+
+        return Task.FromResult(result);
+    }
+
+    public Task<EmpresaDto?> GetByIdAsync(
+        Guid id,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(GetById(id)?.AContrato());
+
+    public Task<EmpresaDto> CreateAsync(
+        string nombre,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(Create(nombre).AContrato());
+
+    public Task<bool> UpdateAsync(
+        Guid id,
+        string nombre,
+        bool activo,
+        long expectedVersion = 0,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(Update(id, nombre, activo, expectedVersion));
+
+    public Task<bool> DeactivateAsync(
+        Guid id,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(Deactivate(id));
+
+    private void Notify()
+    {
+        StateChanged?.Invoke();
+        notificador.Notificar(ModulosDatos.Empresas);
     }
 
     private void ValidateNombre(string nombre, Guid ignoredId)
