@@ -1,12 +1,15 @@
+using ObligatorioFrontEnd.Api;
+using ObligatorioFrontEnd.Api.Contratos;
 using ObligatorioFrontEnd.Models;
 
 namespace ObligatorioFrontEnd.Services;
 
-public sealed class CultivoService
+public sealed class CultivoService : IServicioCultivos
 {
     private readonly IUserScope userScope;
     private readonly EmpresaService empresaService;
     private readonly AuditService audit;
+    private readonly NotificadorDatos notificador;
 
     private readonly List<Cultivo> cultivos =
     [
@@ -15,11 +18,16 @@ public sealed class CultivoService
         new() { Id = SeedIds.TrigoCamposVerdes, EmpresaId = SeedIds.CamposVerdes, Nombre = "Trigo" }
     ];
 
-    public CultivoService(IUserScope userScope, EmpresaService empresaService, AuditService audit)
+    public CultivoService(
+        IUserScope userScope,
+        EmpresaService empresaService,
+        AuditService audit,
+        NotificadorDatos notificador)
     {
         this.userScope = userScope;
         this.empresaService = empresaService;
         this.audit = audit;
+        this.notificador = notificador;
     }
 
     public event Action? StateChanged;
@@ -39,7 +47,7 @@ public sealed class CultivoService
         var cultivo = new Cultivo { EmpresaId = empresaId, Nombre = nombre.Trim() };
         cultivos.Add(cultivo);
         audit.Record(nameof(Cultivo), cultivo.Id, "Crear", empresaId, null, cultivo);
-        StateChanged?.Invoke();
+        Notify();
         return cultivo;
     }
 
@@ -55,7 +63,7 @@ public sealed class CultivoService
         var replacement = current with { Nombre = nombre.Trim(), Activo = activo };
         cultivos[index] = replacement;
         audit.Record(nameof(Cultivo), current.Id, activo ? "Actualizar" : "Desactivar", current.EmpresaId, current, replacement);
-        StateChanged?.Invoke();
+        Notify();
         return true;
     }
 
@@ -63,6 +71,59 @@ public sealed class CultivoService
     {
         var cultivo = cultivos.SingleOrDefault(c => c.Id == id);
         return cultivo is not null && Update(id, cultivo.Nombre, false);
+    }
+
+    public Task<IReadOnlyList<CultivoDto>> GetAllAsync(
+        bool incluirInactivos = false,
+        CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<CultivoDto> result = GetAll(includeInactive: incluirInactivos)
+            .Select(cultivo => cultivo.AContrato())
+            .ToList();
+
+        return Task.FromResult(result);
+    }
+
+    public Task<CultivoDto?> GetByIdAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        var cultivo = GetById(id);
+        return Task.FromResult(cultivo?.AContrato());
+    }
+
+    public Task<CultivoDto> CreateAsync(
+        CrearCultivoDto dto,
+        CancellationToken cancellationToken = default)
+    {
+        var empresaId = dto.EmpresaId
+            ?? userScope.CurrentUser?.EmpresaId
+            ?? throw new InvalidOperationException("Debe indicar la empresa del cultivo.");
+
+        return Task.FromResult(Create(empresaId, dto.Nombre).AContrato());
+    }
+
+    public Task<CultivoDto?> UpdateAsync(
+        ActualizarCultivoDto dto,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Update(dto.Id, dto.Nombre, dto.Activo))
+        {
+            return Task.FromResult<CultivoDto?>(null);
+        }
+
+        return Task.FromResult<CultivoDto?>(cultivos.Single(c => c.Id == dto.Id).AContrato());
+    }
+
+    public Task<bool> DeactivateAsync(
+        Guid id,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(Deactivate(id));
+
+    private void Notify()
+    {
+        StateChanged?.Invoke();
+        notificador.Notificar(ModulosDatos.Cultivos);
     }
 
     private void ValidateNombre(Guid empresaId, string nombre, Guid ignoredId)

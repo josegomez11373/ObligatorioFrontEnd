@@ -5,9 +5,11 @@ namespace ObligatorioFrontEnd.Services;
 /// <summary>
 /// Temporary client-side session used while the API and real identity provider are not available.
 /// </summary>
-public sealed class DemoAuthService : IUserScope
+public sealed class DemoAuthService : IAuthService
 {
     private const string DemoPassword = "siga2026";
+
+    private readonly SesionPersistencia persistencia;
 
     private readonly List<Usuario> usuarios =
     [
@@ -19,7 +21,19 @@ public sealed class DemoAuthService : IUserScope
         new() { Id = SeedIds.UsuarioContratista, Email = "contratista@siga.demo", Nombre = "Nicolás Torres", Rol = UserRole.Contratista, EmpresaId = SeedIds.AgroDelSur }
     ];
 
+    public DemoAuthService(SesionPersistencia persistencia)
+    {
+        this.persistencia = persistencia;
+    }
+
     public event Action? StateChanged;
+
+    /// <summary>El mock no tiene tokens, así que nunca expira.</summary>
+    public event Action? Expirada
+    {
+        add { }
+        remove { }
+    }
 
     public DemoUser? CurrentUser { get; private set; }
 
@@ -41,6 +55,20 @@ public sealed class DemoAuthService : IUserScope
 
     public bool CanManage(SigaModule module) => CurrentUser is { } user && Permissions.CanManage(user.Role, module);
 
+    public async Task<bool> LoginAsync(
+        string email,
+        string contrasena,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Login(email, contrasena))
+        {
+            return false;
+        }
+
+        await persistencia.GuardarAsync(new SesionGuardada { UsuarioDemo = CurrentUser });
+        return true;
+    }
+
     public bool Login(string email, string password)
     {
         var user = usuarios.FirstOrDefault(candidate => candidate.Activo && candidate.Email.Equals(email, StringComparison.OrdinalIgnoreCase));
@@ -54,11 +82,36 @@ public sealed class DemoAuthService : IUserScope
         return true;
     }
 
+    public async Task<bool> RestaurarAsync(CancellationToken cancellationToken = default)
+    {
+        if (CurrentUser is not null)
+        {
+            return true;
+        }
+
+        var sesion = await persistencia.RestaurarAsync();
+
+        if (sesion?.UsuarioDemo is not { } usuario)
+        {
+            if (sesion is not null)
+            {
+                await persistencia.OlvidarAsync();
+            }
+
+            return false;
+        }
+
+        CurrentUser = usuario;
+        StateChanged?.Invoke();
+        return true;
+    }
+
     public bool HasAnyRole(params UserRole[] roles) => CurrentUser is not null && roles.Contains(CurrentUser.Role);
 
-    public void Logout()
+    public async Task LogoutAsync()
     {
         CurrentUser = null;
+        await persistencia.OlvidarAsync();
         StateChanged?.Invoke();
     }
 
@@ -80,11 +133,20 @@ public sealed class DemoAuthService : IUserScope
 
     private static DemoUser ToDemoUser(Usuario user)
     {
+        var empresaNombre = user.EmpresaId switch
+        {
+            null => "Toda la plataforma",
+            var id when id == SeedIds.AgroDelSur => "Agro del Sur",
+            var id when id == SeedIds.CamposVerdes => "Campos Verdes",
+            _ => "Mi empresa"
+        };
+
         var scope = user.EmpresaId is null
             ? "Toda la plataforma"
             : user.EstablecimientoIds.Count == 0
-                ? (user.EmpresaId == SeedIds.AgroDelSur ? "Agro del Sur" : "Campos Verdes")
+                ? empresaNombre
                 : "Establecimiento La Esperanza";
-        return new DemoUser(user.Id, user.Email, user.Nombre, user.Rol, user.EmpresaId, user.EstablecimientoIds, scope);
+
+        return new DemoUser(user.Id, user.Email, user.Nombre, user.Rol, user.EmpresaId, user.EstablecimientoIds, scope, empresaNombre);
     }
 }

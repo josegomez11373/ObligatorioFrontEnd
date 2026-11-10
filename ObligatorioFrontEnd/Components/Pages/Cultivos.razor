@@ -1,8 +1,12 @@
 @page "/cultivos"
 @implements IDisposable
-@inject CultivoService CultivoService
-@inject EmpresaService EmpresaService
-@inject DemoAuthService Auth
+@inject IServicioCultivos CultivoService
+@inject IContextoEmpresa Contexto
+@inject NotificadorDatos Notificador
+@inject IAuthService Auth
+
+@using ObligatorioFrontEnd.Api.Contratos
+@using ObligatorioFrontEnd.Models
 
 <PageTitle>Cultivos | SIGA</PageTitle>
 
@@ -11,7 +15,7 @@
         <div>
             <p class="eyebrow">Catálogos</p>
             <h1>Cultivos</h1>
-            <p class="page-intro">Administrá los cultivos disponibles para crear campañas.</p>
+            <p class="page-intro">Administrá los cultivos disponibles para crear campañas en la empresa activa.</p>
             <a class="catalog-back-link" href="/catalogos"><span aria-hidden="true">←</span> Volver a catálogos</a>
         </div>
         @if (CanManage)
@@ -26,117 +30,129 @@
     }
 
     <section class="card">
-            <div class="card-header">
-                <h2>Cultivos (@cultivos.Count)</h2>
-                @if (IsAdminGeneral)
-                {
-                    <div class="form-field compact-field">
-                        <label for="cultivo-empresa">Empresa</label>
-                        <select id="cultivo-empresa" @bind="empresaFiltro" @bind:after="OnEmpresaChanged">
-                            @foreach (var empresa in EmpresaService.GetAll())
-                            {
-                                <option value="@empresa.Id">@empresa.Nombre</option>
-                            }
-                        </select>
-                    </div>
-                }
-            </div>
+        <div class="card-header">
+            <h2>Cultivos (@cultivos.Count)</h2>
+        </div>
 
-            @if (!cultivos.Any())
-            {
-                <p class="muted">No hay cultivos registrados para la empresa seleccionada.</p>
-            }
-            else
-            {
-                <table class="table">
-                    <thead>
-                        <tr><th>Nombre</th><th>Empresa</th><th>Estado</th><th></th></tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var cultivo in cultivos)
-                        {
-                            <tr class="@(cultivo.Activo ? null : "row-muted")">
-                                <td>@cultivo.Nombre</td>
-                                <td>@(EmpresaService.GetById(cultivo.EmpresaId)?.Nombre ?? "—")</td>
-                                <td>@(cultivo.Activo ? "Activo" : "Desactivado")</td>
-                                <td class="actions">
-                                    @if (CanManage)
+        @if (cargando && cultivos.Count == 0)
+        {
+            <p>Cargando...</p>
+        }
+        else if (!cultivos.Any())
+        {
+            <p class="muted">No hay cultivos registrados para la empresa activa.</p>
+        }
+        else
+        {
+            <table class="table">
+                <thead>
+                    <tr><th>Nombre</th><th>Empresa</th><th>Estado</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var cultivo in cultivos)
+                    {
+                        <tr class="@(cultivo.Activo ? null : "row-muted")">
+                            <td>@cultivo.Nombre</td>
+                            <td>@(Contexto.EmpresaActiva?.Nombre ?? "—")</td>
+                            <td>@(cultivo.Activo ? "Activo" : "Desactivado")</td>
+                            <td class="actions">
+                                @if (CanManage)
+                                {
+                                    <button type="button" @onclick="() => Editar(cultivo)">Editar</button>
+                                    @if (cultivo.Activo)
                                     {
-                                        <button type="button" @onclick="() => Editar(cultivo)">Editar</button>
-                                        @if (cultivo.Activo)
-                                        {
-                                            <button type="button" class="destructive" @onclick="() => Deactivate(cultivo.Id)">Desactivar</button>
-                                        }
+                                        <button type="button" class="destructive" @onclick="() => Deactivate(cultivo.Id)">Desactivar</button>
                                     }
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            }
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
     </section>
     @if (CanManage)
     {
         <SidePanel IsOpen="formOpen" Title="@(editingId is null ? "Nuevo cultivo" : "Editar cultivo")" OnClose="Limpiar">
-                <EditForm Model="model" OnValidSubmit="Guardar">
-                    <DataAnnotationsValidator />
-                    <ValidationSummary />
-                    <div class="form-field">
-                        <label for="cultivo-nombre">Nombre</label>
-                        <InputText id="cultivo-nombre" @bind-Value="model.Nombre" />
-                    </div>
-                    <div class="form-field">
-                        <label class="checkbox-item">
-                            <InputCheckbox @bind-Value="model.Activo" /> Activo
-                        </label>
-                    </div>
-                    <div class="form-actions">
-                        <button class="primary-button" type="submit">Guardar</button>
-                        <button type="button" @onclick="Limpiar">Cancelar</button>
-                    </div>
-                </EditForm>
+            <EditForm Model="model" OnValidSubmit="Guardar">
+                <DataAnnotationsValidator />
+                <ValidationSummary />
+                <div class="form-field">
+                    <label for="cultivo-nombre">Nombre</label>
+                    <InputText id="cultivo-nombre" @bind-Value="model.Nombre" />
+                </div>
+                <div class="form-field">
+                    <label class="checkbox-item">
+                        <InputCheckbox @bind-Value="model.Activo" /> Activo
+                    </label>
+                </div>
+                <div class="form-actions">
+                    <button class="primary-button" type="submit">Guardar</button>
+                    <button type="button" @onclick="Limpiar">Cancelar</button>
+                </div>
+            </EditForm>
         </SidePanel>
     }
 </RoleGuard>
 
 @code {
-    private IReadOnlyList<Cultivo> cultivos = [];
+    private IReadOnlyList<CultivoDto> cultivos = [];
     private CultivoForm model = new();
     private Guid? editingId;
+    private long editingVersion;
     private string? error;
-    private string empresaFiltro = string.Empty;
     private bool formOpen;
+    private bool cargando;
 
-    private bool IsAdminGeneral => Auth.CurrentUser?.Role == UserRole.AdministradorGeneral;
     private bool CanManage => Auth.CurrentUser is { Role: var role } && Permissions.CanManageCultivos(role);
-    private Guid EmpresaId => Guid.TryParse(empresaFiltro, out var id) ? id : Guid.Empty;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        CultivoService.StateChanged += Load;
-        empresaFiltro = (Auth.CurrentUser?.EmpresaId ?? EmpresaService.GetAll().FirstOrDefault()?.Id ?? Guid.Empty).ToString();
-        Load();
+        Notificador.Cambio += HandleChanged;
+        await LoadAsync();
     }
 
-    private void Load()
+    private async Task LoadAsync()
     {
-        cultivos = CultivoService.GetAll(true)
-            .Where(cultivo => EmpresaId == Guid.Empty || cultivo.EmpresaId == EmpresaId)
-            .ToList();
-        InvokeAsync(StateHasChanged);
+        cargando = true;
+
+        try
+        {
+            var lista = await CultivoService.GetAllAsync(incluirInactivos: true);
+            var activa = Contexto.EmpresaActivaId;
+            cultivos = activa is Guid empresaId
+                ? lista.Where(cultivo => cultivo.EmpresaId == empresaId).ToList()
+                : lista;
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+        finally
+        {
+            cargando = false;
+        }
     }
 
-    private void OnEmpresaChanged()
+    private void HandleChanged(string modulo)
     {
-        Limpiar();
-        Load();
+        if (modulo != ModulosDatos.Cultivos && modulo != ModulosDatos.EmpresaActiva)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        });
     }
 
-    private void Editar(Cultivo item)
+    private void Editar(CultivoDto item)
     {
         editingId = item.Id;
+        editingVersion = item.Version;
         formOpen = true;
-        empresaFiltro = item.EmpresaId.ToString();
         model = new CultivoForm { Nombre = item.Nombre, Activo = item.Activo };
         error = null;
     }
@@ -147,7 +163,7 @@
         formOpen = true;
     }
 
-    private void Guardar()
+    private async Task Guardar()
     {
         error = null;
 
@@ -155,16 +171,30 @@
         {
             if (editingId is Guid id)
             {
-                CultivoService.Update(id, model.Nombre, model.Activo);
+                var actualizado = await CultivoService.UpdateAsync(new ActualizarCultivoDto
+                {
+                    Id = id,
+                    Nombre = model.Nombre.Trim(),
+                    Activo = model.Activo,
+                    Version = editingVersion
+                });
+
+                if (actualizado is null)
+                {
+                    error = "No se encontró el cultivo.";
+                    return;
+                }
             }
             else
             {
-                if (EmpresaId == Guid.Empty)
-                {
-                    throw new InvalidOperationException("Seleccioná una empresa.");
-                }
+                var empresaId = Contexto.EmpresaActivaId
+                    ?? throw new InvalidOperationException("Seleccioná una empresa.");
 
-                CultivoService.Create(EmpresaId, model.Nombre);
+                await CultivoService.CreateAsync(new CrearCultivoDto
+                {
+                    EmpresaId = empresaId,
+                    Nombre = model.Nombre.Trim()
+                });
             }
 
             Limpiar();
@@ -175,13 +205,13 @@
         }
     }
 
-    private void Deactivate(Guid id)
+    private async Task Deactivate(Guid id)
     {
         error = null;
 
         try
         {
-            CultivoService.Deactivate(id);
+            await CultivoService.DeactivateAsync(id);
         }
         catch (InvalidOperationException exception)
         {
@@ -193,11 +223,12 @@
     {
         formOpen = false;
         editingId = null;
+        editingVersion = 0;
         model = new CultivoForm();
         error = null;
     }
 
-    public void Dispose() => CultivoService.StateChanged -= Load;
+    public void Dispose() => Notificador.Cambio -= HandleChanged;
 
     private sealed class CultivoForm
     {

@@ -28,6 +28,13 @@ public static class SigaTime
 
     public static string Format(DateTime value, string format = "g") => ToLocal(value).ToString(format);
 
+    /// <summary>
+    /// Formatea una fecha para tablas. La API todavía devuelve <c>default</c> en
+    /// algunas fechas de creación (bug de auditoría), así que se muestra una raya.
+    /// </summary>
+    public static string FormatOrDash(DateTime value, string format = "g") =>
+        value == default || value.Year < 2000 ? "—" : Format(value, format);
+
     private static TimeZoneInfo ResolveTimeZone()
     {
         foreach (var id in new[] { "America/Montevideo", "Montevideo Standard Time" })

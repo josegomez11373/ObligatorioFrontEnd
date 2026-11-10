@@ -2,12 +2,17 @@
 @page "/campanas/{editId:guid}"
 @implements IDisposable
 
-@inject CampanaService CampanaService
-@inject CultivoService CultivoService
-@inject PotreroService PotreroService
-@inject EmpresaService EmpresaService
-@inject DemoAuthService Auth
+@inject IServicioCampanas CampanaService
+@inject IServicioCultivos CultivoService
+@inject IServicioPotreros PotreroService
+@inject IContextoEmpresa Contexto
+@inject NotificadorDatos Notificador
+@inject IAuthService Auth
 @inject NavigationManager Navigation
+
+@using ObligatorioFrontEnd.Api
+@using ObligatorioFrontEnd.Api.Contratos
+@using ObligatorioFrontEnd.Models
 
 <PageTitle>Campañas | SIGA</PageTitle>
 
@@ -30,62 +35,68 @@
     }
 
     <section class="card">
-            <h2>Campañas (@(campanas?.Count ?? 0))</h2>
-            @if (campanas is null)
-            {
-                <p>Cargando...</p>
-            }
-            else if (!campanas.Any())
-            {
-                <p class="muted">No hay campañas registradas.</p>
-            }
-            else
-            {
-                <table class="table">
-                    <thead>
-                        <tr><th>Campaña</th><th>Empresa</th><th>Cultivo</th><th>Potreros</th><th>Período</th><th>Estado</th><th></th></tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var campana in campanas)
-                        {
-                            <tr class="@(campana.Estado is CampanaEstado.Cerrada or CampanaEstado.Anulada ? "row-muted" : null)">
-                                <td>@campana.Nombre</td>
-                                <td>@(EmpresaService.GetById(campana.EmpresaId)?.Nombre ?? "—")</td>
-                                <td>@(CultivoService.GetById(campana.CultivoId)?.Nombre ?? "—")</td>
-                                <td>@PotrerosText(campana.Id)</td>
-                                <td>@PeriodText(campana)</td>
-                                <td><span class="state-badge @StateClass(campana.Estado)">@campana.Estado.DisplayName()</span></td>
-                                <td class="actions">
-                                    @if (CanManage)
+        <h2>Campañas (@(campanas?.Count ?? 0))</h2>
+        @if (cargando && campanas is null)
+        {
+            <p>Cargando...</p>
+        }
+        else if (campanas is null || !campanas.Any())
+        {
+            <p class="muted">No hay campañas registradas para la empresa activa.</p>
+        }
+        else
+        {
+            <table class="table">
+                <thead>
+                    <tr><th>Campaña</th><th>Empresa</th><th>Cultivo</th><th>Potreros</th><th>Período</th><th>Estado</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var campana in campanas)
+                    {
+                        <tr class="@(campana.Estado is EstadoCampana.Cerrada or EstadoCampana.Anulada ? "row-muted" : null)">
+                            <td>@campana.Nombre</td>
+                            <td>@(Contexto.EmpresaActiva?.Nombre ?? "—")</td>
+                            <td>@campana.CultivoNombre</td>
+                            <td>@PotrerosText(campana)</td>
+                            <td>@PeriodText(campana)</td>
+                            <td><span class="state-badge @StateClass(campana.Estado)">@campana.Estado.DisplayName()</span></td>
+                            <td class="actions">
+                                @if (CanManage)
+                                {
+                                    <button type="button" @onclick="() => EditCampana(campana.Id)">Editar</button>
+                                    @if (campana.Estado == EstadoCampana.Activa)
                                     {
-                                        <button type="button" @onclick="() => EditCampana(campana.Id)">Editar</button>
-                                        @if (campana.Estado == CampanaEstado.Activa)
-                                        {
-                                            <button type="button" @onclick="() => BeginCerrar(campana.Id)">Cerrar</button>
-                                        }
+                                        <button type="button" @onclick="() => BeginCerrar(campana)">Cerrar</button>
                                     }
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            }
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
 
-            @if (cerrarId is Guid campanaId)
-            {
-                <div class="inline-confirm">
-                    <p><strong>Cerrar campaña</strong> — se cierran también sus potreros y se conserva el historial.</p>
-                    <div class="form-actions">
-                        <button type="button" class="destructive" @onclick="() => ConfirmCerrar(campanaId)">Confirmar cierre</button>
-                        <button type="button" @onclick="CancelCerrar">Cancelar</button>
-                    </div>
+        @if (campanaCerrar is not null)
+        {
+            <div class="inline-confirm">
+                <p><strong>Cerrar campaña</strong> — se cierran también sus potreros y se conserva el historial.</p>
+                <div class="form-actions">
+                    <button type="button" class="destructive" @onclick="ConfirmCerrar">Confirmar cierre</button>
+                    <button type="button" @onclick="CancelCerrar">Cancelar</button>
                 </div>
-            }
+            </div>
+        }
     </section>
     @if (CanManage)
     {
         <SidePanel IsOpen="formOpen" Title="@(editModel.Id == Guid.Empty ? "Crear campaña" : "Editar campaña")" OnClose="Cancel">
-            <CampanaForm Model="editModel" OnValidSubmit="HandleFormSubmit" OnCancel="Cancel" />
+            <CampanaForm Model="editModel"
+                         Empresas="EmpresasForm"
+                         Cultivos="Cultivos"
+                         Potreros="Potreros"
+                         EsEdicion="editModel.Id != Guid.Empty"
+                         OnValidSubmit="HandleFormSubmit"
+                         OnCancel="Cancel" />
             @if (!string.IsNullOrWhiteSpace(formError))
             {
                 <p class="form-error" role="alert">@formError</p>
@@ -95,64 +106,147 @@
 </RoleGuard>
 
 @code {
-    private IReadOnlyList<Campana>? campanas;
+    private IReadOnlyList<CampanaDto>? campanas;
+    private IReadOnlyList<CultivoDto> cultivos = [];
+    private IReadOnlyList<PotreroDto> potreros = [];
     private CampanaEditModel editModel = new();
+    private CampanaDto? campanaCerrar;
     private string? formError;
     private string? error;
-    private Guid? cerrarId;
     private bool formOpen;
+    private bool cargando;
+    private Guid? loadedEditId;
 
     [Parameter]
     public Guid? editId { get; set; }
 
     private bool CanManage => Auth.CanManage(SigaModule.Campanas);
 
-    protected override void OnInitialized()
+    private IReadOnlyList<EmpresaDto> EmpresasForm =>
+        Contexto.EmpresaActiva is { } empresa ? [empresa] : [];
+
+    private IReadOnlyList<CultivoDto> Cultivos => cultivos;
+
+    private IReadOnlyList<PotreroDto> Potreros => potreros;
+
+    protected override async Task OnInitializedAsync()
     {
-        CampanaService.StateChanged += HandleChanged;
-        Load();
+        Notificador.Cambio += HandleChanged;
+        await LoadAsync();
     }
 
-    protected override void OnParametersSet()
+    protected override async Task OnParametersSetAsync()
     {
-        formOpen = editId is not null;
-        if (editId is not null)
+        await LoadEditAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        cargando = true;
+
+        try
         {
-            var campana = CampanaService.GetById(editId.Value);
-            if (campana is not null)
+            var campanasTask = CampanaService.GetAllAsync(incluirAnuladas: true);
+            var cultivosTask = CultivoService.GetAllAsync(incluirInactivos: true);
+            var potrerosTask = PotreroService.GetAllAsync(incluirInactivos: true);
+            await Task.WhenAll(campanasTask, cultivosTask, potrerosTask);
+
+            var activa = Contexto.EmpresaActivaId;
+
+            var listaCampanas = await campanasTask;
+            campanas = activa is Guid empresaId
+                ? listaCampanas.Where(campana => campana.EmpresaId == empresaId).ToList()
+                : listaCampanas;
+
+            var listaCultivos = await cultivosTask;
+            cultivos = activa is Guid empresaCultivo
+                ? listaCultivos.Where(cultivo => cultivo.EmpresaId == empresaCultivo).ToList()
+                : listaCultivos;
+
+            var listaPotreros = await potrerosTask;
+            potreros = activa is Guid empresaPotrero
+                ? listaPotreros.Where(potrero => potrero.EmpresaId == empresaPotrero).ToList()
+                : listaPotreros;
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+        finally
+        {
+            cargando = false;
+        }
+    }
+
+    private async Task LoadEditAsync()
+    {
+        if (editId is not Guid id)
+        {
+            if (formOpen && editModel.Id == Guid.Empty)
             {
-                editModel = new CampanaEditModel
-                {
-                    Id = campana.Id,
-                    EmpresaId = campana.EmpresaId,
-                    Nombre = campana.Nombre,
-                    CultivoId = campana.CultivoId,
-                    FechaInicio = campana.FechaInicio,
-                    FechaFin = campana.FechaFin,
-                    Estado = campana.Estado,
-                    PotreroIds = CampanaService.GetPotreros(campana.Id).Select(cp => cp.PotreroId).ToList(),
-                    Version = campana.Version
-                };
+                return;
             }
-            else
+
+            loadedEditId = null;
+            formOpen = false;
+            return;
+        }
+
+        if (loadedEditId == id && formOpen)
+        {
+            return;
+        }
+
+        loadedEditId = id;
+        formOpen = true;
+        formError = null;
+
+        try
+        {
+            var campana = await CampanaService.GetByIdAsync(id);
+            if (campana is null)
             {
+                editModel = NewModel();
                 formError = "No se encontró la campaña solicitada.";
+                return;
             }
+
+            editModel = new CampanaEditModel
+            {
+                Id = campana.Id,
+                EmpresaId = campana.EmpresaId,
+                Nombre = campana.Nombre,
+                CultivoId = campana.CultivoId,
+                FechaInicio = campana.FechaInicio,
+                FechaFin = campana.FechaFin,
+                Estado = campana.Estado.AModelo(),
+                PotreroIds = campana.Potreros.Select(potrero => potrero.PotreroId).ToList(),
+                Version = campana.Version
+            };
         }
-        else
+        catch (InvalidOperationException exception)
         {
-            editModel = NewModel();
-            formError = null;
+            formError = exception.Message;
         }
     }
 
-    private void Load()
+    private void HandleChanged(string modulo)
     {
-        campanas = CampanaService.GetAll();
-        InvokeAsync(StateHasChanged);
-    }
+        if (modulo != ModulosDatos.Campanas &&
+            modulo != ModulosDatos.Cultivos &&
+            modulo != ModulosDatos.Potreros &&
+            modulo != ModulosDatos.EmpresaActiva)
+        {
+            return;
+        }
 
-    private void HandleChanged() => Load();
+        _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            await LoadEditAsync();
+            StateHasChanged();
+        });
+    }
 
     private void NewCampana()
     {
@@ -173,32 +267,47 @@
         Navigation.NavigateTo("/campanas", replace: true);
     }
 
-    private void HandleFormSubmit(CampanaEditModel model)
+    private async Task HandleFormSubmit(CampanaEditModel model)
     {
         formError = null;
         error = null;
 
         try
         {
-            var draft = new Campana
-            {
-                Id = model.Id,
-                EmpresaId = model.EmpresaId,
-                Nombre = model.Nombre.Trim(),
-                CultivoId = model.CultivoId,
-                FechaInicio = model.FechaInicio.Date,
-                FechaFin = model.FechaFin?.Date,
-                Estado = model.Estado
-            };
-
             if (model.Id == Guid.Empty)
             {
-                CampanaService.Create(draft, model.PotreroIds);
+                var empresaId = Contexto.EmpresaActivaId
+                    ?? throw new InvalidOperationException("Seleccioná una empresa.");
+
+                await CampanaService.CreateAsync(new CrearCampanaDto
+                {
+                    EmpresaId = empresaId,
+                    Nombre = model.Nombre.Trim(),
+                    CultivoId = model.CultivoId,
+                    FechaInicio = model.FechaInicio.Date,
+                    FechaFin = model.FechaFin?.Date,
+                    PotreroIds = model.PotreroIds
+                });
             }
-            else if (!CampanaService.Update(draft, model.PotreroIds, model.Version))
+            else
             {
-                formError = "No se encontró la campaña.";
-                return;
+                // El contrato de la API no permite cambiar los potreros al editar.
+                var actualizada = await CampanaService.UpdateAsync(new ActualizarCampanaDto
+                {
+                    Id = model.Id,
+                    Nombre = model.Nombre.Trim(),
+                    CultivoId = model.CultivoId,
+                    FechaInicio = model.FechaInicio.Date,
+                    FechaFin = model.FechaFin?.Date,
+                    Estado = model.Estado.AApi(),
+                    Version = model.Version
+                });
+
+                if (actualizada is null)
+                {
+                    formError = "No se encontró la campaña.";
+                    return;
+                }
             }
 
             Cancel();
@@ -209,22 +318,43 @@
         }
     }
 
-    private void BeginCerrar(Guid id)
+    private void BeginCerrar(CampanaDto campana)
     {
-        cerrarId = id;
+        campanaCerrar = campana;
         error = null;
     }
 
-    private void CancelCerrar() => cerrarId = null;
+    private void CancelCerrar() => campanaCerrar = null;
 
-    private void ConfirmCerrar(Guid id)
+    private async Task ConfirmCerrar()
     {
+        if (campanaCerrar is not { } campana)
+        {
+            return;
+        }
+
         error = null;
 
         try
         {
-            CampanaService.Cerrar(id);
-            cerrarId = null;
+            var cerrada = await CampanaService.UpdateAsync(new ActualizarCampanaDto
+            {
+                Id = campana.Id,
+                Nombre = campana.Nombre,
+                CultivoId = campana.CultivoId,
+                FechaInicio = campana.FechaInicio,
+                FechaFin = campana.FechaFin ?? SigaTime.TodayLocal,
+                Estado = EstadoCampana.Cerrada,
+                Version = campana.Version
+            });
+
+            if (cerrada is null)
+            {
+                error = "No se encontró la campaña.";
+                return;
+            }
+
+            campanaCerrar = null;
         }
         catch (InvalidOperationException exception)
         {
@@ -234,29 +364,27 @@
 
     private CampanaEditModel NewModel() => new()
     {
-        EmpresaId = Auth.CurrentUser?.EmpresaId ?? EmpresaService.GetAll().FirstOrDefault()?.Id ?? Guid.Empty,
-        FechaInicio = SigaTime.TodayLocal
+        EmpresaId = Contexto.EmpresaActivaId ?? Auth.CurrentUser?.EmpresaId ?? Guid.Empty,
+        FechaInicio = SigaTime.TodayLocal,
+        Estado = CampanaEstado.Planificada
     };
 
-    private string PotrerosText(Guid campanaId)
+    private static string PotrerosText(CampanaDto campana)
     {
-        var names = CampanaService.GetPotreros(campanaId)
-            .Select(cp => PotreroService.GetById(cp.PotreroId)?.Nombre)
-            .Where(name => name is not null);
-
-        return string.Join(", ", names!) is { Length: > 0 } value ? value : "—";
+        var names = campana.Potreros.Select(potrero => potrero.PotreroNombre).ToList();
+        return names.Count > 0 ? string.Join(", ", names) : "—";
     }
 
-    private static string PeriodText(Campana campana) =>
+    private static string PeriodText(CampanaDto campana) =>
         $"{campana.FechaInicio:dd/MM/yyyy} — {(campana.FechaFin is null ? "En curso" : campana.FechaFin.Value.ToString("dd/MM/yyyy"))}";
 
-    private static string StateClass(CampanaEstado estado) => estado switch
+    private static string StateClass(EstadoCampana estado) => estado switch
     {
-        CampanaEstado.Activa => "state-badge--active",
-        CampanaEstado.Cerrada => "state-badge--closed",
-        CampanaEstado.Anulada => "state-badge--cancelled",
+        EstadoCampana.Activa => "state-badge--active",
+        EstadoCampana.Cerrada => "state-badge--closed",
+        EstadoCampana.Anulada => "state-badge--cancelled",
         _ => "state-badge--planned"
     };
 
-    public void Dispose() => CampanaService.StateChanged -= HandleChanged;
+    public void Dispose() => Notificador.Cambio -= HandleChanged;
 }

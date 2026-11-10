@@ -1,24 +1,32 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using ObligatorioFrontEnd.Api;
+using ObligatorioFrontEnd.Api.Contratos;
 using ObligatorioFrontEnd.Models;
 
 namespace ObligatorioFrontEnd.Services;
 
-public sealed class PotreroService
+public sealed class PotreroService : IServicioPotreros
 {
     private readonly IUserScope userScope;
     private readonly EstablecimientoService establecimientoService;
     private readonly AuditService audit;
+    private readonly NotificadorDatos notificador;
     private readonly List<Potrero> potreros = new();
 
     public event Action? StateChanged;
 
-    public PotreroService(EstablecimientoService establecimientoService, IUserScope userScope, AuditService audit)
+    public PotreroService(
+        EstablecimientoService establecimientoService,
+        IUserScope userScope,
+        AuditService audit,
+        NotificadorDatos notificador)
     {
         this.establecimientoService = establecimientoService;
         this.userScope = userScope;
         this.audit = audit;
+        this.notificador = notificador;
         potreros.Add(new Potrero { Id = SeedIds.PotreroLaEsperanza, EstablecimientoId = SeedIds.LaEsperanza, Nombre = "Potrero de Establecimiento La Esperanza", SuperficieHa = 60.25, CreatedBy = "seed" });
         potreros.Add(new Potrero { Id = SeedIds.PotreroElAlto, EstablecimientoId = SeedIds.ElAlto, Nombre = "Potrero de Establecimiento El Alto", SuperficieHa = 42.65, CreatedBy = "seed" });
     }
@@ -60,7 +68,7 @@ public sealed class PotreroService
         };
         potreros.Add(p);
         audit.Record(nameof(Potrero), p.Id, "Crear", EmpresaDe(p), null, p);
-        StateChanged?.Invoke();
+        Notify();
         return p;
     }
 
@@ -93,7 +101,7 @@ public sealed class PotreroService
         };
         potreros[idx] = replacement;
         audit.Record(nameof(Potrero), existing.Id, updated.Activo ? "Actualizar" : "Desactivar", EmpresaDe(existing), existing, replacement);
-        StateChanged?.Invoke();
+        Notify();
         return true;
     }
 
@@ -116,8 +124,78 @@ public sealed class PotreroService
         };
         potreros[idx] = replacement;
         audit.Record(nameof(Potrero), existing.Id, "Desactivar", EmpresaDe(existing), existing, replacement);
-        StateChanged?.Invoke();
+        Notify();
         return true;
+    }
+
+    public Task<IReadOnlyList<PotreroDto>> GetAllAsync(
+        bool incluirInactivos = false,
+        CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<PotreroDto> result = GetAll(includeInactive: incluirInactivos)
+            .Select(ADto)
+            .Where(dto => dto is not null)
+            .Cast<PotreroDto>()
+            .ToList();
+
+        return Task.FromResult(result);
+    }
+
+    public Task<PotreroDto?> GetByIdAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        var potrero = GetById(id);
+        return Task.FromResult(potrero is null ? null : ADto(potrero));
+    }
+
+    public Task<PotreroDto> CreateAsync(
+        CrearPotreroDto dto,
+        CancellationToken cancellationToken = default)
+    {
+        var creado = Create(new Potrero
+        {
+            EstablecimientoId = dto.EstablecimientoId,
+            Nombre = dto.Nombre,
+            SuperficieHa = dto.SuperficieHa,
+            Limites = dto.Limites
+        });
+
+        return Task.FromResult(ADto(creado)!);
+    }
+
+    public Task<PotreroDto?> UpdateAsync(
+        ActualizarPotreroDto dto,
+        CancellationToken cancellationToken = default)
+    {
+        var actualizado = Update(new Potrero
+        {
+            Id = dto.Id,
+            EstablecimientoId = dto.EstablecimientoId,
+            Nombre = dto.Nombre,
+            SuperficieHa = dto.SuperficieHa,
+            Limites = dto.Limites,
+            Activo = dto.Activo
+        }, dto.Version);
+
+        return Task.FromResult(actualizado ? ADto(potreros.Single(p => p.Id == dto.Id)) : null);
+    }
+
+    public Task<bool> DeactivateAsync(
+        Guid id,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(Deactivate(id));
+
+    private PotreroDto? ADto(Potrero potrero)
+    {
+        var establecimiento = establecimientoService.GetById(potrero.EstablecimientoId);
+        return establecimiento is null ? null : potrero.AContrato(establecimiento);
+    }
+
+    private void Notify()
+    {
+        StateChanged?.Invoke();
+        notificador.Notificar(ModulosDatos.Potreros);
     }
 
     private void ValidateNombre(string nombre, Guid establecimientoId, Guid ignoredId)

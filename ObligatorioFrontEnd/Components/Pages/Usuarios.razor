@@ -1,9 +1,15 @@
 @page "/usuarios"
 @implements IDisposable
-@inject UserService Service
-@inject DemoAuthService Auth
-@inject EmpresaService EmpresaService
-@inject EstablecimientoService EstablecimientoService
+@inject IServicioUsuarios Service
+@inject IServicioEmpresas EmpresaService
+@inject IServicioEstablecimientos EstablecimientoService
+@inject IContextoEmpresa Contexto
+@inject NotificadorDatos Notificador
+@inject IAuthService Auth
+
+@using ObligatorioFrontEnd.Api
+@using ObligatorioFrontEnd.Api.Contratos
+@using ObligatorioFrontEnd.Models
 
 <PageTitle>Usuarios | SIGA</PageTitle>
 
@@ -30,128 +36,145 @@
     }
 
     <section class="card">
-            <h2>Usuarios (@users.Count)</h2>
-            @if (!users.Any())
-            {
-                <p class="muted">No hay usuarios visibles para tu alcance.</p>
-            }
-            else
-            {
-                <table class="table">
-                    <thead>
-                        <tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Empresa</th><th>Establecimientos</th><th>Estado</th><th>Actualizado</th><th></th></tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var user in users)
-                        {
-                            <tr class="@(user.Activo ? null : "row-muted")">
-                                <td>@user.Nombre</td>
-                                <td>@user.Email</td>
-                                <td>@user.Rol.DisplayName()</td>
-                                <td>@EmpresaNombre(user)</td>
-                                <td>@EstablecimientosTexto(user)</td>
-                                <td>@(user.Activo ? "Activo" : "Desactivado")</td>
-                                <td>@SigaTime.Format(user.UpdatedAt ?? user.CreatedAt)</td>
-                                <td class="actions">
-                                    @if (CanEdit(user))
+        <h2>Usuarios (@users.Count)</h2>
+        @if (cargando && users.Count == 0)
+        {
+            <p>Cargando...</p>
+        }
+        else if (!users.Any())
+        {
+            <p class="muted">No hay usuarios visibles para tu alcance.</p>
+        }
+        else
+        {
+            <table class="table">
+                <thead>
+                    <tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Empresa</th><th>Establecimientos</th><th>Estado</th><th>Creado</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var user in users)
+                    {
+                        <tr class="@(user.Activo ? null : "row-muted")">
+                            <td>@user.Nombre</td>
+                            <td>@user.Email</td>
+                            <td>@user.Rol.DisplayName()</td>
+                            <td>@EmpresaNombre(user)</td>
+                            <td>@EstablecimientosTexto(user)</td>
+                            <td>@(user.Activo ? "Activo" : "Desactivado")</td>
+                            <td>@SigaTime.Format(user.FechaCreacion)</td>
+                            <td class="actions">
+                                @if (CanEdit(user))
+                                {
+                                    <button type="button" @onclick="() => Edit(user)">Editar</button>
+                                    @if (user.Activo && user.Id != Auth.CurrentUser?.Id)
                                     {
-                                        <button type="button" @onclick="() => Edit(user)">Editar</button>
-                                        @if (user.Activo && user.Id != Auth.CurrentUser?.Id)
-                                        {
-                                            <button type="button" class="destructive" @onclick="() => Deactivate(user.Id)">Desactivar</button>
-                                        }
+                                        <button type="button" class="destructive" @onclick="() => Deactivate(user.Id)">Desactivar</button>
                                     }
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            }
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
     </section>
     @if (CanManage)
     {
         <SidePanel IsOpen="formOpen" Title="@(editing ? "Editar usuario" : "Nuevo usuario")" OnClose="Reset">
-                <EditForm Model="model" OnValidSubmit="Save">
-                    <DataAnnotationsValidator />
-                    <ValidationSummary />
+            <EditForm Model="model" OnValidSubmit="Save">
+                <DataAnnotationsValidator />
+                <ValidationSummary />
 
-                    <div class="form-field">
-                        <label for="usuario-nombre">Nombre</label>
-                        <InputText id="usuario-nombre" @bind-Value="model.Nombre" />
-                    </div>
+                <div class="form-field">
+                    <label for="usuario-nombre">Nombre</label>
+                    <InputText id="usuario-nombre" @bind-Value="model.Nombre" />
+                </div>
 
-                    <div class="form-field">
-                        <label for="usuario-email">Correo</label>
-                        <InputText id="usuario-email" @bind-Value="model.Email" type="email" />
-                    </div>
+                <div class="form-field">
+                    <label for="usuario-email">Correo</label>
+                    <InputText id="usuario-email" @bind-Value="model.Email" type="email" disabled="@editing" />
+                    @if (editing)
+                    {
+                        <p class="field-help">El correo no se puede modificar.</p>
+                    }
+                </div>
 
+                <div class="form-field">
+                    <label for="usuario-password">@(editing ? "Nueva contraseña (opcional)" : "Contraseña")</label>
+                    <InputText id="usuario-password" @bind-Value="model.Contrasena" type="password" autocomplete="new-password" />
+                    <p class="field-help">Mínimo 8 caracteres.</p>
+                </div>
+
+                <div class="form-field">
+                    <label for="usuario-rol">Rol</label>
+                    <InputSelect id="usuario-rol" @bind-Value="model.Rol">
+                        @foreach (var role in AvailableRoles)
+                        {
+                            <option value="@role">@role.DisplayName()</option>
+                        }
+                    </InputSelect>
+                </div>
+
+                @if (model.Rol != UserRole.AdministradorGeneral)
+                {
                     <div class="form-field">
-                        <label for="usuario-rol">Rol</label>
-                        <InputSelect id="usuario-rol" @bind-Value="model.Rol">
-                            @foreach (var role in AvailableRoles)
+                        <label for="usuario-empresa">Empresa</label>
+                        <InputSelect id="usuario-empresa" @bind-Value="model.EmpresaId" disabled="@(!IsAdminGeneral)" @bind-Value:after="OnEmpresaChanged">
+                            <option value="@Guid.Empty">Seleccioná...</option>
+                            @foreach (var empresa in EmpresasDisponibles)
                             {
-                                <option value="@role">@role.DisplayName()</option>
+                                <option value="@empresa.Id">@empresa.Nombre</option>
                             }
                         </InputSelect>
                     </div>
 
-                    @if (model.Rol != UserRole.AdministradorGeneral)
-                    {
-                        <div class="form-field">
-                            <label for="usuario-empresa">Empresa</label>
-                            <InputSelect id="usuario-empresa" @bind-Value="model.EmpresaId" disabled="@(!IsAdminGeneral)" @bind-Value:after="OnEmpresaChanged">
-                                <option value="@Guid.Empty">Seleccioná...</option>
-                                @foreach (var empresa in EmpresaService.GetAll().Where(e => e.Activo || e.Id == model.EmpresaId))
-                                {
-                                    <option value="@empresa.Id">@empresa.Nombre</option>
-                                }
-                            </InputSelect>
-                        </div>
-
-                        <div class="form-field">
-                            <label>Establecimientos específicos (vacío = todos)</label>
-                            @if (!EstablecimientosDisponibles.Any())
-                            {
-                                <p class="field-help">Seleccioná una empresa para ver sus establecimientos.</p>
-                            }
-                            else
-                            {
-                                <div class="checkbox-grid">
-                                    @foreach (var establecimiento in EstablecimientosDisponibles)
-                                    {
-                                        <label class="checkbox-item">
-                                            <input type="checkbox"
-                                                   checked="@selectedEstablecimientos.Contains(establecimiento.Id)"
-                                                   @onchange="args => ToggleEstablecimiento(establecimiento.Id, args)" />
-                                            <span>@establecimiento.Nombre</span>
-                                        </label>
-                                    }
-                                </div>
-                            }
-                        </div>
-                    }
-
                     <div class="form-field">
-                        <label class="checkbox-item">
-                            <InputCheckbox @bind-Value="model.Activo" /> Activo
-                        </label>
+                        <label>Establecimientos específicos (vacío = todos)</label>
+                        @if (!EstablecimientosDisponibles.Any())
+                        {
+                            <p class="field-help">Seleccioná una empresa para ver sus establecimientos.</p>
+                        }
+                        else
+                        {
+                            <div class="checkbox-grid">
+                                @foreach (var establecimiento in EstablecimientosDisponibles)
+                                {
+                                    <label class="checkbox-item">
+                                        <input type="checkbox"
+                                               checked="@selectedEstablecimientos.Contains(establecimiento.Id)"
+                                               @onchange="args => ToggleEstablecimiento(establecimiento.Id, args)" />
+                                        <span>@establecimiento.Nombre</span>
+                                    </label>
+                                }
+                            </div>
+                        }
                     </div>
+                }
 
-                    <div class="form-actions">
-                        <button class="primary-button" type="submit">Guardar</button>
-                        <button type="button" @onclick="Reset">Cancelar</button>
-                    </div>
-                </EditForm>
+                <div class="form-field">
+                    <label class="checkbox-item">
+                        <InputCheckbox @bind-Value="model.Activo" /> Activo
+                    </label>
+                </div>
+
+                <div class="form-actions">
+                    <button class="primary-button" type="submit">Guardar</button>
+                    <button type="button" @onclick="Reset">Cancelar</button>
+                </div>
+            </EditForm>
         </SidePanel>
     }
 </RoleGuard>
 
 @code {
-    private IReadOnlyList<Usuario> users = [];
+    private IReadOnlyList<UsuarioDto> users = [];
+    private IReadOnlyList<EmpresaDto> empresas = [];
+    private IReadOnlyList<EstablecimientoDto> establecimientos = [];
     private UserForm model = new();
     private HashSet<Guid> selectedEstablecimientos = [];
     private bool editing;
     private bool formOpen;
+    private bool cargando;
     private string? error;
     private string? success;
 
@@ -167,10 +190,6 @@
                 yield return UserRole.AdministradorGeneral;
                 yield return UserRole.AdministradorEmpresa;
             }
-            else if (editing && model.Id == Auth.CurrentUser?.Id)
-            {
-                yield return UserRole.AdministradorEmpresa;
-            }
 
             yield return UserRole.IngenieroAgronomo;
             yield return UserRole.OperarioCampo;
@@ -178,48 +197,93 @@
         }
     }
 
-    private IEnumerable<Establecimiento> EstablecimientosDisponibles => model.EmpresaId == Guid.Empty
-        ? Enumerable.Empty<Establecimiento>()
-        : EstablecimientoService.GetAll()
-            .Where(e => e.EmpresaId == model.EmpresaId && (e.Activo || selectedEstablecimientos.Contains(e.Id)));
+    private IEnumerable<EmpresaDto> EmpresasDisponibles => IsAdminGeneral
+        ? empresas
+        : empresas.Where(empresa => empresa.Id == model.EmpresaId);
 
-    protected override void OnInitialized()
+    private IEnumerable<EstablecimientoDto> EstablecimientosDisponibles => model.EmpresaId == Guid.Empty
+        ? Enumerable.Empty<EstablecimientoDto>()
+        : establecimientos
+            .Where(establecimiento => establecimiento.EmpresaId == model.EmpresaId &&
+                                      (establecimiento.Activo || selectedEstablecimientos.Contains(establecimiento.Id)))
+            .OrderBy(establecimiento => establecimiento.Nombre);
+
+    protected override async Task OnInitializedAsync()
     {
-        Service.StateChanged += Load;
-        Load();
+        Notificador.Cambio += HandleChanged;
         Reset();
+        await LoadAsync();
     }
 
-    private void Load()
+    private async Task LoadAsync()
     {
-        users = Service.GetAll(true);
-        InvokeAsync(StateHasChanged);
+        cargando = true;
+
+        try
+        {
+            var usuariosTask = Service.GetAllAsync(incluirInactivos: true);
+            var empresasTask = EmpresaService.GetAllAsync(includeInactive: false);
+            var establecimientosTask = EstablecimientoService.GetAllAsync(incluirInactivos: true);
+            await Task.WhenAll(usuariosTask, empresasTask, establecimientosTask);
+
+            empresas = (await empresasTask).OrderBy(empresa => empresa.Nombre).ToList();
+            establecimientos = (await establecimientosTask).OrderBy(establecimiento => establecimiento.Nombre).ToList();
+
+            var activa = Contexto.EmpresaActivaId;
+            var listaUsuarios = await usuariosTask;
+            users = activa is Guid empresaId
+                ? listaUsuarios
+                    .Where(usuario => usuario.EmpresaId == empresaId || usuario.EmpresaId is null)
+                    .OrderBy(usuario => usuario.Nombre)
+                    .ToList()
+                : listaUsuarios;
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+        finally
+        {
+            cargando = false;
+        }
     }
 
-    private string EmpresaNombre(Usuario user) => user.EmpresaId is Guid empresaId
-        ? EmpresaService.GetById(empresaId)?.Nombre ?? "—"
-        : "Toda la plataforma";
-
-    private string EstablecimientosTexto(Usuario user)
+    private void HandleChanged(string modulo)
     {
-        if (user.Rol == UserRole.AdministradorGeneral)
+        if (modulo != ModulosDatos.Usuarios &&
+            modulo != ModulosDatos.Establecimientos &&
+            modulo != ModulosDatos.Empresas &&
+            modulo != ModulosDatos.EmpresaActiva)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        });
+    }
+
+    private string EmpresaNombre(UsuarioDto user) =>
+        user.EmpresaId is null ? "Toda la plataforma" : user.EmpresaNombre ?? "—";
+
+    private string EstablecimientosTexto(UsuarioDto user)
+    {
+        if (user.Rol == RolApi.AdministradorGeneral)
         {
             return "—";
         }
 
-        if (user.EstablecimientoIds.Count == 0)
+        if (user.Establecimientos.Count == 0)
         {
             return "Todos";
         }
 
-        var names = user.EstablecimientoIds
-            .Select(id => EstablecimientoService.GetById(id)?.Nombre)
-            .Where(name => !string.IsNullOrWhiteSpace(name));
-
-        return string.Join(", ", names) is { Length: > 0 } value ? value : "—";
+        return string.Join(", ", user.Establecimientos.Select(establecimiento => establecimiento.Nombre));
     }
 
-    private bool CanEdit(Usuario user)
+    private bool CanEdit(UsuarioDto user)
     {
         if (!CanManage)
         {
@@ -231,15 +295,16 @@
             return true;
         }
 
-        if (user.EmpresaId != Auth.CurrentUser?.EmpresaId)
+        // El administrador de empresa solo gestiona roles operativos de su empresa.
+        if (user.EmpresaId != Auth.CurrentUser?.EmpresaId || user.Id == Auth.CurrentUser?.Id)
         {
             return false;
         }
 
-        return user.Rol != UserRole.AdministradorEmpresa || user.Id == Auth.CurrentUser?.Id;
+        return user.Rol is RolApi.IngenieroAgronomo or RolApi.OperarioCampo or RolApi.Contratista;
     }
 
-    private void Edit(Usuario user)
+    private void Edit(UsuarioDto user)
     {
         editing = true;
         formOpen = true;
@@ -250,12 +315,12 @@
             Id = user.Id,
             Email = user.Email,
             Nombre = user.Nombre,
-            Rol = user.Rol,
+            Rol = user.Rol.AModelo(),
             EmpresaId = user.EmpresaId ?? Guid.Empty,
             Activo = user.Activo,
             Version = user.Version
         };
-        selectedEstablecimientos = user.EstablecimientoIds.ToHashSet();
+        selectedEstablecimientos = user.Establecimientos.Select(establecimiento => establecimiento.Id).ToHashSet();
     }
 
     private void NewUser()
@@ -266,7 +331,8 @@
 
     private void OnEmpresaChanged()
     {
-        selectedEstablecimientos.RemoveWhere(id => EstablecimientoService.GetById(id)?.EmpresaId != model.EmpresaId);
+        selectedEstablecimientos.RemoveWhere(id =>
+            establecimientos.SingleOrDefault(establecimiento => establecimiento.Id == id)?.EmpresaId != model.EmpresaId);
     }
 
     private void ToggleEstablecimiento(Guid id, ChangeEventArgs args)
@@ -281,38 +347,68 @@
         }
     }
 
-    private void Save()
+    private async Task Save()
     {
         error = null;
         success = null;
 
+        if (!editing && string.IsNullOrWhiteSpace(model.Contrasena))
+        {
+            error = "La contraseña es obligatoria para un usuario nuevo.";
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(model.Contrasena) && model.Contrasena.Length < 8)
+        {
+            error = "La contraseña debe tener al menos 8 caracteres.";
+            return;
+        }
+
         try
         {
             var isAdminGeneral = model.Rol == UserRole.AdministradorGeneral;
-            var user = new Usuario
-            {
-                Id = model.Id,
-                Email = model.Email,
-                Nombre = model.Nombre,
-                Rol = model.Rol,
-                EmpresaId = isAdminGeneral || model.EmpresaId == Guid.Empty ? null : model.EmpresaId,
-                EstablecimientoIds = isAdminGeneral ? [] : selectedEstablecimientos.ToList(),
-                Activo = model.Activo
-            };
+            var empresaId = isAdminGeneral || model.EmpresaId == Guid.Empty ? (Guid?)null : model.EmpresaId;
+            var establecimientoIds = isAdminGeneral ? [] : selectedEstablecimientos.ToList();
+            var rol = model.Rol.AApi();
 
             if (editing)
             {
-                if (!Service.Update(user, model.Version))
+                var actualizado = await Service.UpdateAsync(new ActualizarUsuarioDto
+                {
+                    Id = model.Id,
+                    Nombre = model.Nombre.Trim(),
+                    Rol = rol,
+                    Activo = model.Activo,
+                    EmpresaId = IsAdminGeneral ? empresaId : null,
+                    EstablecimientoIds = establecimientoIds,
+                    Version = model.Version
+                });
+
+                if (actualizado is null)
                 {
                     error = "No se encontró el usuario.";
                     return;
+                }
+
+                if (!string.IsNullOrWhiteSpace(model.Contrasena))
+                {
+                    await Service.CambiarContrasenaAsync(model.Id, model.Contrasena);
                 }
 
                 success = "Usuario actualizado.";
             }
             else
             {
-                Service.Create(user);
+                await Service.CreateAsync(new CrearUsuarioDto
+                {
+                    Nombre = model.Nombre.Trim(),
+                    Email = model.Email.Trim(),
+                    Contrasena = model.Contrasena,
+                    Rol = rol,
+                    EmpresaId = IsAdminGeneral ? empresaId : null,
+                    EstablecimientoIds = establecimientoIds
+                });
+
                 success = "Usuario creado.";
             }
 
@@ -324,14 +420,14 @@
         }
     }
 
-    private void Deactivate(Guid id)
+    private async Task Deactivate(Guid id)
     {
         error = null;
         success = null;
 
         try
         {
-            Service.Deactivate(id);
+            await Service.DeactivateAsync(id);
             success = "Usuario desactivado.";
         }
         catch (InvalidOperationException exception)
@@ -346,14 +442,14 @@
         editing = false;
         model = new UserForm
         {
-            EmpresaId = Auth.CurrentUser?.EmpresaId ?? Guid.Empty,
+            EmpresaId = Contexto.EmpresaActivaId ?? Auth.CurrentUser?.EmpresaId ?? Guid.Empty,
             Rol = IsAdminGeneral ? UserRole.AdministradorGeneral : UserRole.IngenieroAgronomo
         };
         selectedEstablecimientos = [];
         error = null;
     }
 
-    public void Dispose() => Service.StateChanged -= Load;
+    public void Dispose() => Notificador.Cambio -= HandleChanged;
 
     private sealed class UserForm
     {
@@ -366,6 +462,7 @@
         [System.ComponentModel.DataAnnotations.EmailAddress(ErrorMessage = "El correo no tiene un formato válido.")]
         public string Email { get; set; } = string.Empty;
 
+        public string Contrasena { get; set; } = string.Empty;
         public UserRole Rol { get; set; } = UserRole.IngenieroAgronomo;
         public Guid EmpresaId { get; set; }
         public bool Activo { get; set; } = true;

@@ -1,24 +1,32 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using ObligatorioFrontEnd.Api;
+using ObligatorioFrontEnd.Api.Contratos;
 using ObligatorioFrontEnd.Models;
 
 namespace ObligatorioFrontEnd.Services;
 
-public sealed class EstablecimientoService
+public sealed class EstablecimientoService : IServicioEstablecimientos
 {
     private readonly IUserScope userScope;
     private readonly EmpresaService empresaService;
     private readonly AuditService audit;
+    private readonly NotificadorDatos notificador;
     private readonly List<Establecimiento> establecimientos = new();
 
     public event Action? StateChanged;
 
-    public EstablecimientoService(EmpresaService empresaService, IUserScope userScope, AuditService audit)
+    public EstablecimientoService(
+        EmpresaService empresaService,
+        IUserScope userScope,
+        AuditService audit,
+        NotificadorDatos notificador)
     {
         this.empresaService = empresaService;
         this.userScope = userScope;
         this.audit = audit;
+        this.notificador = notificador;
 
         establecimientos.Add(new Establecimiento { Id = SeedIds.LaEsperanza, EmpresaId = SeedIds.AgroDelSur, Nombre = "Establecimiento La Esperanza", SuperficieHa = 120.5, CreatedBy = "seed" });
         establecimientos.Add(new Establecimiento { Id = SeedIds.ElAlto, EmpresaId = SeedIds.CamposVerdes, Nombre = "Establecimiento El Alto", SuperficieHa = 85.3, CreatedBy = "seed" });
@@ -53,7 +61,7 @@ public sealed class EstablecimientoService
         };
         establecimientos.Add(ent);
         audit.Record(nameof(Establecimiento), ent.Id, "Crear", ent.EmpresaId, null, ent);
-        StateChanged?.Invoke();
+        Notify();
         return ent;
     }
 
@@ -87,7 +95,7 @@ public sealed class EstablecimientoService
         };
         establecimientos[idx] = replacement;
         audit.Record(nameof(Establecimiento), existing.Id, updated.Activo ? "Actualizar" : "Desactivar", existing.EmpresaId, existing, replacement);
-        StateChanged?.Invoke();
+        Notify();
         return true;
     }
 
@@ -110,8 +118,88 @@ public sealed class EstablecimientoService
         };
         establecimientos[idx] = replacement;
         audit.Record(nameof(Establecimiento), existing.Id, "Desactivar", existing.EmpresaId, existing, replacement);
-        StateChanged?.Invoke();
+        Notify();
         return true;
+    }
+
+    public Task<IReadOnlyList<EstablecimientoDto>> GetAllAsync(
+        bool incluirInactivos = false,
+        CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<EstablecimientoDto> result = establecimientos
+            .Where(CanAccess)
+            .Where(establecimiento => incluirInactivos || establecimiento.Activo)
+            .OrderBy(establecimiento => establecimiento.Nombre)
+            .Select(ADto)
+            .ToList();
+
+        return Task.FromResult(result);
+    }
+
+    public Task<EstablecimientoDto?> GetByIdAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        var establecimiento = GetById(id);
+        return Task.FromResult(establecimiento is null ? null : ADto(establecimiento));
+    }
+
+    public Task<EstablecimientoDto> CreateAsync(
+        CrearEstablecimientoDto dto,
+        CancellationToken cancellationToken = default)
+    {
+        var empresaId = dto.EmpresaId
+            ?? userScope.CurrentUser?.EmpresaId
+            ?? throw new InvalidOperationException("Debe indicar la empresa del establecimiento.");
+
+        var creado = Create(new Establecimiento
+        {
+            EmpresaId = empresaId,
+            Nombre = dto.Nombre,
+            Ubicacion = dto.Ubicacion,
+            Responsables = dto.Responsables,
+            SuperficieHa = dto.SuperficieHa
+        });
+
+        return Task.FromResult(ADto(creado));
+    }
+
+    public Task<EstablecimientoDto?> UpdateAsync(
+        ActualizarEstablecimientoDto dto,
+        CancellationToken cancellationToken = default)
+    {
+        var existing = establecimientos.SingleOrDefault(establecimiento => establecimiento.Id == dto.Id);
+        if (existing is null)
+        {
+            return Task.FromResult<EstablecimientoDto?>(null);
+        }
+
+        var actualizado = Update(new Establecimiento
+        {
+            Id = dto.Id,
+            EmpresaId = existing.EmpresaId,
+            Nombre = dto.Nombre,
+            Ubicacion = dto.Ubicacion,
+            Responsables = dto.Responsables,
+            SuperficieHa = dto.SuperficieHa,
+            Activo = dto.Activo
+        }, dto.Version);
+
+        return Task.FromResult(actualizado ? ADto(establecimientos.Single(e => e.Id == dto.Id)) : null);
+    }
+
+    public Task<bool> DeactivateAsync(
+        Guid id,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(Deactivate(id));
+
+    private EstablecimientoDto ADto(Establecimiento establecimiento) =>
+        establecimiento.AContrato(empresaService.GetById(establecimiento.EmpresaId)?.Nombre ?? "—");
+
+    private void Notify()
+    {
+        StateChanged?.Invoke();
+        notificador.Notificar(ModulosDatos.Establecimientos);
     }
 
     private void ValidateNombre(string nombre, Guid empresaId, Guid ignoredId)

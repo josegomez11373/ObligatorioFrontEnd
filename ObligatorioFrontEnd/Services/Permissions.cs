@@ -33,7 +33,7 @@ public static class Permissions
         SigaModule.Eventos => role is not UserRole.Contratista,
         SigaModule.Tareas => true,
         SigaModule.Historial => true,
-        SigaModule.Catalogos => role is not UserRole.Contratista,
+        SigaModule.Catalogos => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa or UserRole.IngenieroAgronomo,
         SigaModule.Reportes => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa or UserRole.IngenieroAgronomo,
         SigaModule.Auditoria => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa,
         _ => false
@@ -43,17 +43,17 @@ public static class Permissions
     {
         SigaModule.Empresas => role == UserRole.AdministradorGeneral,
         SigaModule.Usuarios => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa,
-        SigaModule.Establecimientos => role == UserRole.AdministradorEmpresa,
-        SigaModule.Potreros => role == UserRole.AdministradorEmpresa,
-        SigaModule.Campanas => role is UserRole.AdministradorEmpresa or UserRole.IngenieroAgronomo,
+        SigaModule.Establecimientos => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa,
+        SigaModule.Potreros => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa,
+        SigaModule.Campanas => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa or UserRole.IngenieroAgronomo,
         SigaModule.Eventos => role is UserRole.IngenieroAgronomo or UserRole.OperarioCampo,
         SigaModule.Tareas => CanCreateTarea(role),
-        SigaModule.Catalogos => role == UserRole.AdministradorEmpresa,
+        SigaModule.Catalogos => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa,
         _ => false
     };
 
     public static bool CanManageCultivos(UserRole role) =>
-        role is UserRole.AdministradorEmpresa or UserRole.IngenieroAgronomo;
+        role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa or UserRole.IngenieroAgronomo;
 
     public static bool CanCreateTarea(UserRole role) => role == UserRole.IngenieroAgronomo;
 
