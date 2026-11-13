@@ -1,5 +1,15 @@
 # M2 — Integración con ApiSiga: contexto de empresa, notificaciones y módulos asíncronos
 
+> **Estado actual (posterior a M2):** todos los módulos del frontend consumen ApiSiga
+> por HTTP. Los servicios en memoria, los modelos legacy, `Api/MapeoApi.cs`,
+> `FotografiaStore` y el endpoint local `/fotos` fueron eliminados.
+> El login real (`SesionService`/JWT) está habilitado por defecto con
+> `ApiSiga:UseApi=true`. El único componente simulado que queda es
+> `DemoAuthService`, que solo se usa si se fuerza `ApiSiga:UseApi=false`.
+> La tabla final de rutas está en el [`README`](../../README.md). Este documento se
+> conserva como registro del plan de M2; las secciones que describen módulos en modo
+> mock ya no reflejan el código.
+
 > **Estado:** propuesta de trabajo posterior a M1.
 > **Base verificada:** `ObligatorioFrontEnd` compilando sin warnings, login real contra `ApiSiga` y módulo Empresas contra `http://localhost:5100`.
 > **Regla de oro:** siguen siendo dos repositorios independientes. El frontend solo conoce HTTP/JSON; no hay `ProjectReference`, submódulo ni copia de código de la API.

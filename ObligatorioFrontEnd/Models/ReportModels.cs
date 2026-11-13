@@ -1,3 +1,5 @@
+using ObligatorioFrontEnd.Api.Contratos;
+
 namespace ObligatorioFrontEnd.Models;
 
 public sealed class ReportFilter
@@ -8,9 +10,9 @@ public sealed class ReportFilter
     public Guid? CampanaId { get; set; }
     public DateTime? Desde { get; set; }
     public DateTime? Hasta { get; set; }
-    public CampanaEstado? CampanaEstado { get; set; }
-    public EventoEstado? EventoEstado { get; set; }
-    public TareaEstado? TareaEstado { get; set; }
+    public EstadoCampana? CampanaEstado { get; set; }
+    public EstadoEvento? EventoEstado { get; set; }
+    public EstadoTarea? TareaEstado { get; set; }
 }
 
 public sealed record ReportDashboard
@@ -47,7 +49,7 @@ public sealed record ReportCampaignRow(
     Guid Id,
     string Nombre,
     string Empresa,
-    CampanaEstado Estado,
+    EstadoCampana Estado,
     DateTime FechaInicio,
     int Potreros,
     int Eventos,
@@ -81,14 +83,14 @@ public sealed record ReportEventAuthorRow(
     string Tipo,
     string Potrero,
     string Autor,
-    EventoEstado Estado);
+    EstadoEvento Estado);
 
 public sealed record ReportTaskResponseRow(
     DateTime Fecha,
     string Evento,
     string Tarea,
     string Potrero,
-    TareaEstado Estado,
+    EstadoTarea Estado,
     string? Resultado,
     decimal Costo);
 

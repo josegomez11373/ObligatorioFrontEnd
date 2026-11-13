@@ -42,8 +42,20 @@ public sealed record CampanaDto(
     DateTime? FechaFin,
     EstadoCampana Estado,
     DateTime FechaCreacion,
-    long Version,
-    IReadOnlyList<CampanaPotreroDto> Potreros);
+    long Version)
+{
+    private readonly IReadOnlyList<CampanaPotreroDto>? potreros;
+
+    /// <summary>
+    /// La API puede omitir o enviar <c>null</c> en la colección; se normaliza a
+    /// vacía para que las pantallas muestren "sin potreros" en vez de fallar.
+    /// </summary>
+    public IReadOnlyList<CampanaPotreroDto> Potreros
+    {
+        get => potreros ?? [];
+        init => potreros = value;
+    }
+}
 
 /// <summary>Espejo de ApiSiga.Contracts.Campanas.CrearCampanaDto.</summary>
 public sealed class CrearCampanaDto
@@ -67,5 +79,19 @@ public sealed class ActualizarCampanaDto
     public DateTime FechaInicio { get; set; }
     public DateTime? FechaFin { get; set; }
     public EstadoCampana Estado { get; set; } = EstadoCampana.Planificada;
+
+    /// <summary>
+    /// Si viene <c>null</c> se conservan los potreros actuales. Si viene una
+    /// lista, reemplaza la selección anterior.
+    /// </summary>
+    public List<Guid>? PotreroIds { get; set; }
+
     public long Version { get; set; }
+}
+
+/// <summary>Espejo de ApiSiga.Contracts.Campanas.CerrarCampanaPotreroDto.</summary>
+public sealed class CerrarCampanaPotreroDto
+{
+    public DateTime? FechaFin { get; set; }
+    public long? Version { get; set; }
 }

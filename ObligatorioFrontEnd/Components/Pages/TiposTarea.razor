@@ -1,8 +1,11 @@
 @page "/tipos-tarea"
 @implements IDisposable
-@inject TipoTareaService Service
-@inject EmpresaService EmpresaService
+@inject IServicioTiposTarea Service
+@inject IContextoEmpresa Contexto
+@inject NotificadorDatos Notificador
 @inject IAuthService Auth
+
+@using ObligatorioFrontEnd.Api.Contratos
 
 <PageTitle>Tipos de tarea | SIGA</PageTitle>
 
@@ -26,118 +29,130 @@
     }
 
     <section class="card">
-            <div class="card-header">
-                <h2>Tipos (@items.Count)</h2>
-                @if (IsAdminGeneral)
-                {
-                    <div class="form-field compact-field">
-                        <label for="tipo-tarea-empresa">Empresa</label>
-                        <select id="tipo-tarea-empresa" @bind="empresaFiltro" @bind:after="OnEmpresaChanged">
-                            @foreach (var empresa in EmpresaService.GetAll())
-                            {
-                                <option value="@empresa.Id">@empresa.Nombre</option>
-                            }
-                        </select>
-                    </div>
-                }
-            </div>
+        <div class="card-header">
+            <h2>Tipos (@items.Count)</h2>
+        </div>
 
-            @if (!items.Any())
-            {
-                <p class="muted">No hay tipos de tarea registrados para la empresa seleccionada.</p>
-            }
-            else
-            {
-                <table class="table">
-                    <thead>
-                        <tr><th>Nombre</th><th>Empresa</th><th>Estado</th><th></th></tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var item in items)
-                        {
-                            <tr class="@(item.Activo ? null : "row-muted")">
-                                <td>@item.Nombre</td>
-                                <td>@(EmpresaService.GetById(item.EmpresaId)?.Nombre ?? "—")</td>
-                                <td>@(item.Activo ? "Activo" : "Desactivado")</td>
-                                <td class="actions">
-                                    @if (CanManage)
+        @if (cargando && items.Count == 0)
+        {
+            <p>Cargando...</p>
+        }
+        else if (!items.Any())
+        {
+            <p class="muted">No hay tipos de tarea registrados para la empresa activa.</p>
+        }
+        else
+        {
+            <table class="table">
+                <thead>
+                    <tr><th>Nombre</th><th>Empresa</th><th>Estado</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in items)
+                    {
+                        <tr class="@(item.Activo ? null : "row-muted")">
+                            <td>@item.Nombre</td>
+                            <td>@(Contexto.EmpresaActiva?.Nombre ?? "—")</td>
+                            <td>@(item.Activo ? "Activo" : "Desactivado")</td>
+                            <td class="actions">
+                                @if (CanManage)
+                                {
+                                    <button type="button" @onclick="() => Edit(item)">Editar</button>
+                                    @if (item.Activo)
                                     {
-                                        <button type="button" @onclick="() => Edit(item)">Editar</button>
-                                        @if (item.Activo)
-                                        {
-                                            <button type="button" class="destructive" @onclick="() => Deactivate(item.Id)">Desactivar</button>
-                                        }
+                                        <button type="button" class="destructive" @onclick="() => Deactivate(item.Id)">Desactivar</button>
                                     }
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            }
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
     </section>
     @if (CanManage)
     {
-        <SidePanel IsOpen="formOpen" Title="@(editing ? "Editar tipo de tarea" : "Nuevo tipo de tarea")" OnClose="Reset">
-                <EditForm Model="model" OnValidSubmit="Save">
-                    <DataAnnotationsValidator />
-                    <ValidationSummary />
-                    <div class="form-field">
-                        <label for="tipo-tarea-nombre">Nombre</label>
-                        <InputText id="tipo-tarea-nombre" @bind-Value="model.Nombre" />
-                    </div>
-                    <div class="form-field">
-                        <label class="checkbox-item">
-                            <InputCheckbox @bind-Value="model.Activo" /> Activo
-                        </label>
-                    </div>
-                    <div class="form-actions">
-                        <button class="primary-button" type="submit">Guardar</button>
-                        <button type="button" @onclick="Reset">Cancelar</button>
-                    </div>
-                </EditForm>
+        <SidePanel IsOpen="formOpen" Title="@(editingId is not null ? "Editar tipo de tarea" : "Nuevo tipo de tarea")" OnClose="Reset">
+            <EditForm Model="model" OnValidSubmit="Save">
+                <DataAnnotationsValidator />
+                <ValidationSummary />
+                <div class="form-field">
+                    <label for="tipo-tarea-nombre">Nombre</label>
+                    <InputText id="tipo-tarea-nombre" @bind-Value="model.Nombre" />
+                </div>
+                <div class="form-field">
+                    <label class="checkbox-item">
+                        <InputCheckbox @bind-Value="model.Activo" /> Activo
+                    </label>
+                </div>
+                <div class="form-actions">
+                    <button class="primary-button" type="submit">Guardar</button>
+                    <button type="button" @onclick="Reset">Cancelar</button>
+                </div>
+            </EditForm>
         </SidePanel>
     }
 </RoleGuard>
 
 @code {
-    private IReadOnlyList<TipoTarea> items = [];
+    private IReadOnlyList<TipoTareaDto> items = [];
     private TipoTareaForm model = new();
-    private bool editing;
+    private Guid? editingId;
+    private long editingVersion;
     private bool formOpen;
     private string? error;
-    private string empresaFiltro = string.Empty;
+    private bool cargando;
 
-    private bool IsAdminGeneral => Auth.CurrentUser?.Role == UserRole.AdministradorGeneral;
     private bool CanManage => Auth.CanManage(SigaModule.Catalogos);
-    private Guid EmpresaId => Guid.TryParse(empresaFiltro, out var id) ? id : Guid.Empty;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        Service.StateChanged += Load;
-        empresaFiltro = (Auth.CurrentUser?.EmpresaId ?? EmpresaService.GetAll().FirstOrDefault()?.Id ?? Guid.Empty).ToString();
-        Load();
+        Notificador.Cambio += HandleChanged;
+        await LoadAsync();
     }
 
-    private void Load()
+    private async Task LoadAsync()
     {
-        items = Service.GetAll(true)
-            .Where(item => EmpresaId == Guid.Empty || item.EmpresaId == EmpresaId)
-            .ToList();
-        InvokeAsync(StateHasChanged);
+        cargando = true;
+
+        try
+        {
+            var lista = await Service.GetAllAsync(incluirInactivos: true);
+            var activa = Contexto.EmpresaActivaId;
+            items = activa is Guid empresaId
+                ? lista.Where(item => item.EmpresaId == empresaId).ToList()
+                : lista;
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+        finally
+        {
+            cargando = false;
+        }
     }
 
-    private void OnEmpresaChanged()
+    private void HandleChanged(string modulo)
     {
-        Reset();
-        Load();
+        if (modulo != ModulosDatos.TiposTarea && modulo != ModulosDatos.EmpresaActiva)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        });
     }
 
-    private void Edit(TipoTarea item)
+    private void Edit(TipoTareaDto item)
     {
-        editing = true;
+        editingId = item.Id;
+        editingVersion = item.Version;
         formOpen = true;
-        empresaFiltro = item.EmpresaId.ToString();
-        model = new TipoTareaForm { Id = item.Id, Nombre = item.Nombre, Activo = item.Activo };
+        model = new TipoTareaForm { Nombre = item.Nombre, Activo = item.Activo };
         error = null;
     }
 
@@ -147,24 +162,38 @@
         formOpen = true;
     }
 
-    private void Save()
+    private async Task Save()
     {
         error = null;
 
         try
         {
-            if (editing)
+            if (editingId is Guid id)
             {
-                Service.Update(model.Id, model.Nombre, model.Activo);
+                var actualizado = await Service.UpdateAsync(new ActualizarTipoTareaDto
+                {
+                    Id = id,
+                    Nombre = model.Nombre.Trim(),
+                    Activo = model.Activo,
+                    Version = editingVersion
+                });
+
+                if (actualizado is null)
+                {
+                    error = "No se encontró el tipo de tarea.";
+                    return;
+                }
             }
             else
             {
-                if (EmpresaId == Guid.Empty)
-                {
-                    throw new InvalidOperationException("Seleccioná una empresa.");
-                }
+                var empresaId = Contexto.EmpresaActivaId
+                    ?? throw new InvalidOperationException("Seleccioná una empresa.");
 
-                Service.Create(EmpresaId, model.Nombre);
+                await Service.CreateAsync(new CrearTipoTareaDto
+                {
+                    EmpresaId = empresaId,
+                    Nombre = model.Nombre.Trim()
+                });
             }
 
             Reset();
@@ -175,13 +204,13 @@
         }
     }
 
-    private void Deactivate(Guid id)
+    private async Task Deactivate(Guid id)
     {
         error = null;
 
         try
         {
-            Service.Deactivate(id);
+            await Service.DeactivateAsync(id);
         }
         catch (InvalidOperationException exception)
         {
@@ -192,17 +221,16 @@
     private void Reset()
     {
         formOpen = false;
-        editing = false;
+        editingId = null;
+        editingVersion = 0;
         model = new TipoTareaForm();
         error = null;
     }
 
-    public void Dispose() => Service.StateChanged -= Load;
+    public void Dispose() => Notificador.Cambio -= HandleChanged;
 
     private sealed class TipoTareaForm
     {
-        public Guid Id { get; set; }
-
         [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "El nombre es obligatorio.")]
         public string Nombre { get; set; } = string.Empty;
         public bool Activo { get; set; } = true;

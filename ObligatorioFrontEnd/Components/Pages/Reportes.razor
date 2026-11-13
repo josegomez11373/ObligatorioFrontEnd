@@ -1,13 +1,14 @@
 @page "/reportes"
 @implements IDisposable
-@inject ReportService ReportService
-@inject CampanaService CampanaService
-@inject EmpresaService EmpresaService
-@inject EstablecimientoService EstablecimientoService
-@inject PotreroService PotreroService
-@inject AuditService AuditService
-@inject TareaService TareaService
-@inject EventoService EventoService
+@inject IServicioReportes ReportService
+@inject IServicioCampanas CampanaService
+@inject IServicioEmpresas EmpresaService
+@inject IServicioEstablecimientos EstablecimientoService
+@inject IServicioPotreros PotreroService
+@inject NotificadorDatos Notificador
+
+@using ObligatorioFrontEnd.Api.Contratos
+@using ObligatorioFrontEnd.Models
 
 <PageTitle>Reportes | SIGA</PageTitle>
 
@@ -23,6 +24,16 @@
             @(HasAppliedFilters ? "Editar filtros" : "Crear reporte")
         </button>
     </section>
+
+    @if (!string.IsNullOrWhiteSpace(error))
+    {
+        <p class="form-error" role="alert">@error</p>
+    }
+
+    @if (cargando)
+    {
+        <p class="muted" role="status">Actualizando indicadores...</p>
+    }
 
     @if (HasAppliedFilters)
     {
@@ -366,7 +377,7 @@
                             <label for="rep-empresa">Empresa</label>
                             <select id="rep-empresa" @bind="draft.Empresa" @bind:after="OnDraftEmpresaChanged">
                                 <option value="">Todas las empresas visibles</option>
-                                @foreach (var empresa in EmpresaService.GetAll())
+                                @foreach (var empresa in empresas)
                                 {
                                     <option value="@empresa.Id">@empresa.Nombre</option>
                                 }
@@ -427,7 +438,7 @@
                                 <label for="rep-estado-campana">Estado de campaña</label>
                                 <select id="rep-estado-campana" @bind="draft.EstadoCampana">
                                     <option value="">Todos</option>
-                                    @foreach (var estado in Enum.GetValues<CampanaEstado>())
+                                    @foreach (var estado in Enum.GetValues<EstadoCampana>())
                                     {
                                         <option value="@estado">@estado.DisplayName()</option>
                                     }
@@ -437,7 +448,7 @@
                                 <label for="rep-estado-evento">Estado de evento</label>
                                 <select id="rep-estado-evento" @bind="draft.EstadoEvento">
                                     <option value="">Todos</option>
-                                    @foreach (var estado in Enum.GetValues<EventoEstado>())
+                                    @foreach (var estado in Enum.GetValues<EstadoEvento>())
                                     {
                                         <option value="@estado">@estado</option>
                                     }
@@ -448,7 +459,7 @@
                             <label for="rep-estado-tarea">Estado de tarea</label>
                             <select id="rep-estado-tarea" @bind="draft.EstadoTarea">
                                 <option value="">Todos</option>
-                                @foreach (var estado in Enum.GetValues<TareaEstado>())
+                                @foreach (var estado in Enum.GetValues<EstadoTarea>())
                                 {
                                     <option value="@estado">@estado</option>
                                 }
@@ -485,9 +496,15 @@
     ];
 
     private ReportDashboard Dashboard { get; set; } = new();
+    private IReadOnlyList<EmpresaDto> empresas = [];
+    private IReadOnlyList<EstablecimientoDto> establecimientos = [];
+    private IReadOnlyList<PotreroDto> potreros = [];
+    private IReadOnlyList<CampanaDto> campanas = [];
     private FilterState draft = new();
     private FilterState applied = new();
     private bool filtersOpen;
+    private bool cargando;
+    private string? error;
     private string activeReport = "potrero";
 
     private ReportTab CurrentReport => ReportTabs.First(tab => tab.Id == activeReport);
@@ -519,22 +536,22 @@
 
             if (ParseGuid(applied.Empresa) is Guid empresaId)
             {
-                chips.Add(EmpresaService.GetById(empresaId)?.Nombre ?? "Empresa seleccionada");
+                chips.Add(empresas.FirstOrDefault(empresa => empresa.Id == empresaId)?.Nombre ?? "Empresa seleccionada");
             }
 
             if (ParseGuid(applied.Establecimiento) is Guid establecimientoId)
             {
-                chips.Add(EstablecimientoService.GetById(establecimientoId)?.Nombre ?? "Establecimiento seleccionado");
+                chips.Add(establecimientos.FirstOrDefault(establecimiento => establecimiento.Id == establecimientoId)?.Nombre ?? "Establecimiento seleccionado");
             }
 
             if (ParseGuid(applied.Potrero) is Guid potreroId)
             {
-                chips.Add(PotreroService.GetById(potreroId)?.Nombre ?? "Potrero seleccionado");
+                chips.Add(potreros.FirstOrDefault(potrero => potrero.Id == potreroId)?.Nombre ?? "Potrero seleccionado");
             }
 
             if (ParseGuid(applied.Campana) is Guid campanaId)
             {
-                chips.Add(CampanaService.GetById(campanaId)?.Nombre ?? "Campaña seleccionada");
+                chips.Add(campanas.FirstOrDefault(campana => campana.Id == campanaId)?.Nombre ?? "Campaña seleccionada");
             }
 
             if (applied.Desde is DateTime desde)
@@ -547,17 +564,17 @@
                 chips.Add($"Hasta {hasta:dd/MM/yyyy}");
             }
 
-            if (ParseEnum<CampanaEstado>(applied.EstadoCampana) is CampanaEstado campanaEstado)
+            if (ParseEnum<EstadoCampana>(applied.EstadoCampana) is EstadoCampana campanaEstado)
             {
                 chips.Add($"Campaña: {campanaEstado.DisplayName()}");
             }
 
-            if (ParseEnum<EventoEstado>(applied.EstadoEvento) is EventoEstado eventoEstado)
+            if (ParseEnum<EstadoEvento>(applied.EstadoEvento) is EstadoEvento eventoEstado)
             {
                 chips.Add($"Evento: {eventoEstado}");
             }
 
-            if (ParseEnum<TareaEstado>(applied.EstadoTarea) is TareaEstado tareaEstado)
+            if (ParseEnum<EstadoTarea>(applied.EstadoTarea) is EstadoTarea tareaEstado)
             {
                 chips.Add($"Tarea: {tareaEstado}");
             }
@@ -569,23 +586,36 @@
     private Guid? DraftEmpresaId => ParseGuid(draft.Empresa);
     private Guid? DraftEstablecimientoId => ParseGuid(draft.Establecimiento);
 
-    private IEnumerable<Establecimiento> EstablecimientosDisponibles => EstablecimientoService.GetAll()
+    private IEnumerable<EstablecimientoDto> EstablecimientosDisponibles => establecimientos
         .Where(item => !DraftEmpresaId.HasValue || item.EmpresaId == DraftEmpresaId);
 
-    private IEnumerable<Potrero> PotrerosDisponibles => PotreroService.GetAll()
+    private IEnumerable<PotreroDto> PotrerosDisponibles => potreros
         .Where(item => !DraftEstablecimientoId.HasValue || item.EstablecimientoId == DraftEstablecimientoId)
-        .Where(item => !DraftEmpresaId.HasValue || EstablecimientoService.GetById(item.EstablecimientoId)?.EmpresaId == DraftEmpresaId);
-
-    private IEnumerable<Campana> CampanasDisponibles => CampanaService.GetAll()
         .Where(item => !DraftEmpresaId.HasValue || item.EmpresaId == DraftEmpresaId);
 
-    protected override void OnInitialized()
+    private IEnumerable<CampanaDto> CampanasDisponibles => campanas
+        .Where(item => !DraftEmpresaId.HasValue || item.EmpresaId == DraftEmpresaId);
+
+    protected override async Task OnInitializedAsync()
     {
-        CampanaService.StateChanged += Reload;
-        EventoService.StateChanged += Reload;
-        TareaService.StateChanged += Reload;
-        AuditService.StateChanged += Reload;
-        Actualizar();
+        Notificador.Cambio += HandleChanged;
+        await LoadCatalogsAsync();
+        await ActualizarAsync();
+    }
+
+    private async Task LoadCatalogsAsync()
+    {
+        try
+        {
+            empresas = await EmpresaService.GetAllAsync(includeInactive: true);
+            establecimientos = await EstablecimientoService.GetAllAsync(incluirInactivos: true);
+            potreros = await PotreroService.GetAllAsync(incluirInactivos: true);
+            campanas = await CampanaService.GetAllAsync(incluirAnuladas: true);
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
     }
 
     private void SelectReport(string id) => activeReport = id;
@@ -602,18 +632,18 @@
         draft = applied.Clone();
     }
 
-    private void ApplyFilters()
+    private async Task ApplyFilters()
     {
         applied = draft.Clone();
         filtersOpen = false;
-        Actualizar();
+        await ActualizarAsync();
     }
 
-    private void ClearFilters()
+    private async Task ClearFilters()
     {
         draft = new FilterState();
         applied = new FilterState();
-        Actualizar();
+        await ActualizarAsync();
     }
 
     private void ResetDraft() => draft = new FilterState();
@@ -630,26 +660,53 @@
         draft.Potrero = string.Empty;
     }
 
-    private void Reload() => InvokeAsync(() =>
+    private void HandleChanged(string modulo)
     {
-        Actualizar();
-        StateHasChanged();
-    });
-
-    private void Actualizar()
-    {
-        Dashboard = ReportService.Build(new ReportFilter
+        if (modulo != ModulosDatos.Campanas &&
+            modulo != ModulosDatos.Eventos &&
+            modulo != ModulosDatos.Tareas &&
+            modulo != ModulosDatos.Auditoria &&
+            modulo != ModulosDatos.EmpresaActiva)
         {
-            EmpresaId = ParseGuid(applied.Empresa),
-            EstablecimientoId = ParseGuid(applied.Establecimiento),
-            PotreroId = ParseGuid(applied.Potrero),
-            CampanaId = ParseGuid(applied.Campana),
-            Desde = applied.Desde,
-            Hasta = applied.Hasta,
-            CampanaEstado = ParseEnum<CampanaEstado>(applied.EstadoCampana),
-            EventoEstado = ParseEnum<EventoEstado>(applied.EstadoEvento),
-            TareaEstado = ParseEnum<TareaEstado>(applied.EstadoTarea)
+            return;
+        }
+
+        _ = InvokeAsync(async () =>
+        {
+            await LoadCatalogsAsync();
+            await ActualizarAsync();
+            StateHasChanged();
         });
+    }
+
+    private async Task ActualizarAsync()
+    {
+        cargando = true;
+        error = null;
+
+        try
+        {
+            Dashboard = await ReportService.BuildAsync(new ReportFilter
+            {
+                EmpresaId = ParseGuid(applied.Empresa),
+                EstablecimientoId = ParseGuid(applied.Establecimiento),
+                PotreroId = ParseGuid(applied.Potrero),
+                CampanaId = ParseGuid(applied.Campana),
+                Desde = applied.Desde,
+                Hasta = applied.Hasta,
+                CampanaEstado = ParseEnum<EstadoCampana>(applied.EstadoCampana),
+                EventoEstado = ParseEnum<EstadoEvento>(applied.EstadoEvento),
+                TareaEstado = ParseEnum<EstadoTarea>(applied.EstadoTarea)
+            });
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+        finally
+        {
+            cargando = false;
+        }
     }
 
     private static Guid? ParseGuid(string value) => Guid.TryParse(value, out var id) ? id : null;
@@ -657,13 +714,7 @@
     private static TEnum? ParseEnum<TEnum>(string value) where TEnum : struct, Enum =>
         Enum.TryParse<TEnum>(value, out var parsed) ? parsed : null;
 
-    public void Dispose()
-    {
-        CampanaService.StateChanged -= Reload;
-        EventoService.StateChanged -= Reload;
-        TareaService.StateChanged -= Reload;
-        AuditService.StateChanged -= Reload;
-    }
+    public void Dispose() => Notificador.Cambio -= HandleChanged;
 
     private sealed record ReportTab(string Id, string Number, string Label, string Eyebrow, string Title, string Description);
 

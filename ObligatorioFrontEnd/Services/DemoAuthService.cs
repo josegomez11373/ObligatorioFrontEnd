@@ -3,7 +3,8 @@ using ObligatorioFrontEnd.Models;
 namespace ObligatorioFrontEnd.Services;
 
 /// <summary>
-/// Temporary client-side session used while the API and real identity provider are not available.
+/// Sesión de demostración usada mientras la API de identidad no está configurada.
+/// Es el único origen de datos simulado que queda en el frontend.
 /// </summary>
 public sealed class DemoAuthService : IAuthService
 {
@@ -11,7 +12,7 @@ public sealed class DemoAuthService : IAuthService
 
     private readonly SesionPersistencia persistencia;
 
-    private readonly List<Usuario> usuarios =
+    private readonly List<DemoUsuario> usuarios =
     [
         new() { Id = SeedIds.UsuarioAdmin, Email = "admin@siga.demo", Nombre = "Lucía Pereira", Rol = UserRole.AdministradorGeneral },
         new() { Id = SeedIds.UsuarioEmpresa, Email = "empresa@siga.demo", Nombre = "Martín Silva", Rol = UserRole.AdministradorEmpresa, EmpresaId = SeedIds.AgroDelSur },
@@ -39,8 +40,10 @@ public sealed class DemoAuthService : IAuthService
 
     public bool IsAuthenticated => CurrentUser is not null;
 
-    public IReadOnlyList<DemoUser> Users => usuarios.Where(u => u.Activo).Select(ToDemoUser).ToList();
-    public IReadOnlyList<Usuario> UserRecords => usuarios;
+    public IReadOnlyList<DemoUser> Users => usuarios
+        .Where(usuario => usuario.Activo)
+        .Select(ToDemoUser)
+        .ToList();
 
     public string ScopeLabel => CurrentUser?.ScopeLabel ?? string.Empty;
 
@@ -71,7 +74,9 @@ public sealed class DemoAuthService : IAuthService
 
     public bool Login(string email, string password)
     {
-        var user = usuarios.FirstOrDefault(candidate => candidate.Activo && candidate.Email.Equals(email, StringComparison.OrdinalIgnoreCase));
+        var user = usuarios.FirstOrDefault(candidate =>
+            candidate.Activo && candidate.Email.Equals(email, StringComparison.OrdinalIgnoreCase));
+
         if (user is null || password != DemoPassword)
         {
             return false;
@@ -115,23 +120,7 @@ public sealed class DemoAuthService : IAuthService
         StateChanged?.Invoke();
     }
 
-    internal void AddUser(Usuario user) => usuarios.Add(user);
-
-    internal bool ReplaceUser(Usuario user)
-    {
-        var index = usuarios.FindIndex(candidate => candidate.Id == user.Id);
-        if (index < 0) return false;
-        usuarios[index] = user;
-        if (CurrentUser is { } current && current.Id == user.Id)
-        {
-            CurrentUser = ToDemoUser(user);
-        }
-        return true;
-    }
-
-    internal Usuario? FindById(Guid id) => usuarios.SingleOrDefault(user => user.Id == id);
-
-    private static DemoUser ToDemoUser(Usuario user)
+    private static DemoUser ToDemoUser(DemoUsuario user)
     {
         var empresaNombre = user.EmpresaId switch
         {
@@ -147,6 +136,25 @@ public sealed class DemoAuthService : IAuthService
                 ? empresaNombre
                 : "Establecimiento La Esperanza";
 
-        return new DemoUser(user.Id, user.Email, user.Nombre, user.Rol, user.EmpresaId, user.EstablecimientoIds, scope, empresaNombre);
+        return new DemoUser(
+            user.Id,
+            user.Email,
+            user.Nombre,
+            user.Rol,
+            user.EmpresaId,
+            user.EstablecimientoIds,
+            scope,
+            empresaNombre);
+    }
+
+    private sealed class DemoUsuario
+    {
+        public Guid Id { get; init; }
+        public string Email { get; init; } = string.Empty;
+        public string Nombre { get; init; } = string.Empty;
+        public UserRole Rol { get; init; }
+        public bool Activo { get; init; } = true;
+        public Guid? EmpresaId { get; init; }
+        public IReadOnlyList<Guid> EstablecimientoIds { get; init; } = [];
     }
 }

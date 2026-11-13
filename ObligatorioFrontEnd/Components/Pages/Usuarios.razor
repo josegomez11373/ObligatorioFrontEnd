@@ -115,7 +115,7 @@
                     </InputSelect>
                 </div>
 
-                @if (model.Rol != UserRole.AdministradorGeneral)
+                @if (model.Rol != RolApi.AdministradorGeneral)
                 {
                     <div class="form-field">
                         <label for="usuario-empresa">Empresa</label>
@@ -181,19 +181,19 @@
     private bool CanManage => Auth.CanManage(SigaModule.Usuarios);
     private bool IsAdminGeneral => Auth.CurrentUser?.Role == UserRole.AdministradorGeneral;
 
-    private IEnumerable<UserRole> AvailableRoles
+    private IEnumerable<RolApi> AvailableRoles
     {
         get
         {
             if (IsAdminGeneral)
             {
-                yield return UserRole.AdministradorGeneral;
-                yield return UserRole.AdministradorEmpresa;
+                yield return RolApi.AdministradorGeneral;
+                yield return RolApi.AdministradorEmpresa;
             }
 
-            yield return UserRole.IngenieroAgronomo;
-            yield return UserRole.OperarioCampo;
-            yield return UserRole.Contratista;
+            yield return RolApi.IngenieroAgronomo;
+            yield return RolApi.OperarioCampo;
+            yield return RolApi.Contratista;
         }
     }
 
@@ -315,7 +315,7 @@
             Id = user.Id,
             Email = user.Email,
             Nombre = user.Nombre,
-            Rol = user.Rol.AModelo(),
+            Rol = user.Rol,
             EmpresaId = user.EmpresaId ?? Guid.Empty,
             Activo = user.Activo,
             Version = user.Version
@@ -366,10 +366,10 @@
 
         try
         {
-            var isAdminGeneral = model.Rol == UserRole.AdministradorGeneral;
+            var isAdminGeneral = model.Rol == RolApi.AdministradorGeneral;
             var empresaId = isAdminGeneral || model.EmpresaId == Guid.Empty ? (Guid?)null : model.EmpresaId;
             var establecimientoIds = isAdminGeneral ? [] : selectedEstablecimientos.ToList();
-            var rol = model.Rol.AApi();
+            var rol = model.Rol;
 
             if (editing)
             {
@@ -443,7 +443,7 @@
         model = new UserForm
         {
             EmpresaId = Contexto.EmpresaActivaId ?? Auth.CurrentUser?.EmpresaId ?? Guid.Empty,
-            Rol = IsAdminGeneral ? UserRole.AdministradorGeneral : UserRole.IngenieroAgronomo
+            Rol = IsAdminGeneral ? RolApi.AdministradorGeneral : RolApi.IngenieroAgronomo
         };
         selectedEstablecimientos = [];
         error = null;
@@ -463,7 +463,7 @@
         public string Email { get; set; } = string.Empty;
 
         public string Contrasena { get; set; } = string.Empty;
-        public UserRole Rol { get; set; } = UserRole.IngenieroAgronomo;
+        public RolApi Rol { get; set; } = RolApi.IngenieroAgronomo;
         public Guid EmpresaId { get; set; }
         public bool Activo { get; set; } = true;
         public long Version { get; set; }

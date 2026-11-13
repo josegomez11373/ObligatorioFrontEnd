@@ -1,11 +1,10 @@
 @page "/"
 @implements IDisposable
 @inject IAuthService Auth
-@inject ReportService ReportService
-@inject EmpresaService EmpresaService
-@inject CampanaService CampanaService
-@inject EventoService EventoService
-@inject TareaService TareaService
+@inject IServicioReportes ReportService
+@inject NotificadorDatos Notificador
+
+@using ObligatorioFrontEnd.Models
 
 <PageTitle>Resumen | SIGA</PageTitle>
 
@@ -18,7 +17,16 @@
     <span class="role-chip">@Auth.CurrentUser?.Role.DisplayName()</span>
 </section>
 
-@if (Dashboard.Campanas == 0 && Dashboard.Eventos == 0 && Dashboard.Tareas == 0)
+@if (!string.IsNullOrWhiteSpace(error))
+{
+    <p class="form-error" role="alert">@error</p>
+}
+
+@if (cargando && Dashboard.Campanas == 0 && Dashboard.Eventos == 0 && Dashboard.Tareas == 0)
+{
+    <p>Cargando indicadores...</p>
+}
+else if (Dashboard.Campanas == 0 && Dashboard.Eventos == 0 && Dashboard.Tareas == 0)
 {
     <section class="next-step" aria-labelledby="next-step-title">
         <p class="eyebrow">Primeros pasos</p>
@@ -126,31 +134,49 @@ else
 
 @code {
     private ReportDashboard Dashboard { get; set; } = new();
+    private string? error;
+    private bool cargando;
 
     private string FirstName => Auth.CurrentUser?.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "usuario";
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        EmpresaService.StateChanged += Reload;
-        CampanaService.StateChanged += Reload;
-        EventoService.StateChanged += Reload;
-        TareaService.StateChanged += Reload;
-        Build();
+        Notificador.Cambio += HandleChanged;
+        await BuildAsync();
     }
 
-    private void Reload()
+    private async Task BuildAsync()
     {
-        Build();
-        InvokeAsync(StateHasChanged);
+        cargando = true;
+        error = null;
+
+        try
+        {
+            Dashboard = await ReportService.BuildAsync(new ReportFilter());
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+        finally
+        {
+            cargando = false;
+        }
     }
 
-    private void Build() => Dashboard = ReportService.Build(new ReportFilter());
-
-    public void Dispose()
+    private void HandleChanged(string modulo)
     {
-        EmpresaService.StateChanged -= Reload;
-        CampanaService.StateChanged -= Reload;
-        EventoService.StateChanged -= Reload;
-        TareaService.StateChanged -= Reload;
+        if (modulo == ModulosDatos.Auditoria)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(async () =>
+        {
+            await BuildAsync();
+            StateHasChanged();
+        });
     }
+
+    public void Dispose() => Notificador.Cambio -= HandleChanged;
 }

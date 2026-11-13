@@ -47,7 +47,7 @@
     <div class="form-field">
         <label for="estado">Estado</label>
         <InputSelect id="estado" @bind-Value="Model.Estado" disabled="@(!EsEdicion)">
-            @foreach (var estado in Enum.GetValues<CampanaEstado>())
+            @foreach (var estado in Enum.GetValues<EstadoCampana>())
             {
                 <option value="@estado">@estado.DisplayName()</option>
             }
