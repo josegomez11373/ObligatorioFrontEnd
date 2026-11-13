@@ -1,7 +1,10 @@
 @page "/auditoria"
 @implements IDisposable
-@inject AuditService AuditService
-@inject EmpresaService EmpresaService
+@inject IServicioAuditoria AuditService
+@inject IServicioEmpresas EmpresaService
+@inject NotificadorDatos Notificador
+
+@using ObligatorioFrontEnd.Api.Contratos
 
 <PageTitle>Auditoría | SIGA</PageTitle>
 
@@ -46,7 +49,7 @@
                 <label for="aud-empresa">Empresa</label>
                 <select id="aud-empresa" @bind="empresaFiltro">
                     <option value="">Todas</option>
-                    @foreach (var empresa in EmpresaService.GetAll())
+                    @foreach (var empresa in empresas)
                     {
                         <option value="@empresa.Id">@empresa.Nombre</option>
                     }
@@ -72,13 +75,22 @@
         </div>
     </section>
 
+    @if (!string.IsNullOrWhiteSpace(error))
+    {
+        <p class="form-error" role="alert">@error</p>
+    }
+
     <section class="card">
         <div class="card-header">
-            <h2>Registros (@entries.Count)</h2>
+            <h2>Registros (@total)</h2>
             <span class="muted">Actualizado: @SigaTime.Format(SigaTime.UtcNow)</span>
         </div>
 
-        @if (!entries.Any())
+        @if (cargando && entries.Count == 0)
+        {
+            <p>Cargando...</p>
+        }
+        else if (!entries.Any())
         {
             <p class="muted">No hay registros que coincidan con los filtros.</p>
         }
@@ -92,13 +104,14 @@
                     @foreach (var entry in entries)
                     {
                         <tr>
-                            <td>@SigaTime.Format(entry.FechaUtc)</td>
-                            <td>@entry.Actor</td>
+                            <td>@SigaTime.Format(entry.FechaHoraUtc)</td>
+                            <td>@(entry.Actor ?? "—")</td>
                             <td>@entry.Entidad</td>
                             <td>@entry.Accion</td>
-                            <td>@(entry.EmpresaId is Guid empresaId ? EmpresaService.GetById(empresaId)?.Nombre ?? "—" : "—")</td>
+                            <td>@EmpresaTexto(entry)</td>
                             <td>
-                                @if (!string.IsNullOrWhiteSpace(entry.Antes) || !string.IsNullOrWhiteSpace(entry.Despues))
+                                @if (!string.IsNullOrWhiteSpace(entry.DatosAnteriores) ||
+                                     !string.IsNullOrWhiteSpace(entry.DatosNuevos))
                                 {
                                     <details>
                                         <summary>Ver</summary>
@@ -114,76 +127,178 @@
                     }
                 </tbody>
             </table>
+
+            <div class="form-actions pagination">
+                <button type="button" disabled="@(pagina <= 1 || cargando)" @onclick="() => IrPaginaAsync(pagina - 1)">
+                    Anterior
+                </button>
+                <span class="muted">
+                    Mostrando @entries.Count de @total · Página @pagina de @TotalPaginas
+                </span>
+                <button type="button" disabled="@(pagina >= TotalPaginas || cargando)" @onclick="() => IrPaginaAsync(pagina + 1)">
+                    Siguiente
+                </button>
+            </div>
         }
     </section>
 </RoleGuard>
 
 @code {
-    private IReadOnlyList<AuditEntry> entries = [];
+    private const int TamanoPagina = 50;
+
+    private IReadOnlyList<AuditoriaDto> entries = [];
     private IReadOnlyList<string> entidades = [];
     private IReadOnlyList<string> actores = [];
+    private IReadOnlyList<EmpresaDto> empresas = [];
     private string entidadFiltro = string.Empty;
     private string actorFiltro = string.Empty;
     private string empresaFiltro = string.Empty;
     private DateTime? desde;
     private DateTime? hasta;
+    private string? error;
+    private bool cargando;
+    private int pagina = 1;
+    private int total;
 
-    protected override void OnInitialized()
+    private int TotalPaginas => total <= 0
+        ? 1
+        : (int)Math.Ceiling(total / (double)TamanoPagina);
+
+    protected override async Task OnInitializedAsync()
     {
-        AuditService.StateChanged += Reload;
-        CargarOpciones();
-        Buscar();
+        Notificador.Cambio += HandleChanged;
+        await CargarTodoAsync();
     }
 
-    private void Reload()
+    private async Task CargarTodoAsync()
     {
-        CargarOpciones();
-        Buscar();
+        cargando = true;
+        error = null;
+
+        try
+        {
+            empresas = await EmpresaService.GetAllAsync(includeInactive: true);
+            entidades = await AuditService.GetEntidadesAsync();
+            actores = await AuditService.GetActoresAsync();
+            await CargarPaginaAsync();
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+        finally
+        {
+            cargando = false;
+        }
     }
 
-    private void CargarOpciones()
-    {
-        entidades = AuditService.GetEntidades();
-        actores = AuditService.GetActores();
-    }
-
-    private void Buscar()
-    {
-        entries = AuditService.Search(
-            entidadFiltro,
-            actorFiltro,
+    private async Task<AuditoriaPaginadaDto> BuscarPaginaAsync() =>
+        await AuditService.BuscarAsync(
+            string.IsNullOrWhiteSpace(entidadFiltro) ? null : entidadFiltro,
+            string.IsNullOrWhiteSpace(actorFiltro) ? null : actorFiltro,
             desde,
             hasta,
-            Guid.TryParse(empresaFiltro, out var empresaId) ? empresaId : null);
+            Guid.TryParse(empresaFiltro, out var empresaId) ? empresaId : null,
+            pagina,
+            TamanoPagina);
 
-        InvokeAsync(StateHasChanged);
+    private async Task CargarPaginaAsync()
+    {
+        var respuesta = await BuscarPaginaAsync();
+        entries = respuesta.Items;
+        total = respuesta.Total;
     }
 
-    private void Limpiar()
+    private async Task Buscar()
+    {
+        cargando = true;
+        error = null;
+
+        try
+        {
+            pagina = 1;
+            await CargarPaginaAsync();
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+        finally
+        {
+            cargando = false;
+        }
+    }
+
+    private async Task IrPaginaAsync(int nuevaPagina)
+    {
+        if (nuevaPagina < 1 || nuevaPagina > TotalPaginas)
+        {
+            return;
+        }
+
+        cargando = true;
+        error = null;
+
+        try
+        {
+            pagina = nuevaPagina;
+            await CargarPaginaAsync();
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+        finally
+        {
+            cargando = false;
+        }
+    }
+
+    private void HandleChanged(string modulo)
+    {
+        if (modulo != ModulosDatos.Auditoria && modulo != ModulosDatos.EmpresaActiva)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(async () =>
+        {
+            await CargarTodoAsync();
+            StateHasChanged();
+        });
+    }
+
+    private async Task Limpiar()
     {
         entidadFiltro = string.Empty;
         actorFiltro = string.Empty;
         empresaFiltro = string.Empty;
         desde = null;
         hasta = null;
-        Buscar();
+        await Buscar();
     }
 
-    private static string Detalle(AuditEntry entry)
+    private string EmpresaTexto(AuditoriaDto entry) =>
+        entry.EmpresaId is Guid empresaId
+            ? empresas.FirstOrDefault(empresa => empresa.Id == empresaId)?.Nombre ?? "—"
+            : "—";
+
+    private static string Detalle(AuditoriaDto entry)
     {
         var parts = new List<string>();
-        if (!string.IsNullOrWhiteSpace(entry.Antes))
+
+        if (!string.IsNullOrWhiteSpace(entry.DatosAnteriores))
         {
-            parts.Add($"Antes: {entry.Antes}");
+            parts.Add($"Antes: {entry.DatosAnteriores}");
         }
 
-        if (!string.IsNullOrWhiteSpace(entry.Despues))
+        if (!string.IsNullOrWhiteSpace(entry.DatosNuevos))
         {
-            parts.Add($"Después: {entry.Despues}");
+            parts.Add($"Después: {entry.DatosNuevos}");
         }
 
         return string.Join(Environment.NewLine, parts);
     }
 
-    public void Dispose() => AuditService.StateChanged -= Reload;
+    public void Dispose() => Notificador.Cambio -= HandleChanged;
 }

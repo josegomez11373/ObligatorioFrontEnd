@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using ObligatorioFrontEnd.Api.Contratos;
 
 namespace ObligatorioFrontEnd.Models;
 
@@ -21,7 +22,7 @@ public sealed class CampanaEditModel
 
     public DateTime? FechaFin { get; set; }
 
-    public CampanaEstado Estado { get; set; } = CampanaEstado.Planificada;
+    public EstadoCampana Estado { get; set; } = EstadoCampana.Planificada;
 
     public List<Guid> PotreroIds { get; set; } = [];
 

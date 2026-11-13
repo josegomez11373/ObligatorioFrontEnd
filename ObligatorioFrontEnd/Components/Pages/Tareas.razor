@@ -1,16 +1,18 @@
 @page "/tareas"
 @implements IDisposable
-@inject TareaService TareaService
-@inject TipoTareaService TipoTareaService
-@inject CampanaService CampanaService
-@inject PotreroService PotreroService
-@inject EventoService EventoService
+@inject IServicioTareas TareaService
+@inject IServicioTiposTarea TipoTareaService
+@inject IServicioCampanas CampanaService
+@inject IServicioEventos EventoService
+@inject IServicioUsuarios UserService
+@inject IServicioContratistas ContratistaService
+@inject IServicioInsumos InsumoService
+@inject IServicioMaquinaria MaquinariaService
+@inject IContextoEmpresa Contexto
+@inject NotificadorDatos Notificador
 @inject IAuthService Auth
-@inject UserService UserService
-@inject ContratistaService ContratistaService
-@inject InsumoService InsumoService
-@inject MaquinariaService MaquinariaService
-@using MaquinariaModel = ObligatorioFrontEnd.Models.Maquinaria
+
+@using ObligatorioFrontEnd.Api.Contratos
 
 <PageTitle>Tareas | SIGA</PageTitle>
 
@@ -33,119 +35,127 @@
     }
 
     <section class="card">
-            <h2>Tareas</h2>
+        <h2>Tareas</h2>
 
-            <div class="filter-row">
-                <div class="form-field compact-field">
-                    <label for="buscar-tarea">Buscar</label>
-                    <input id="buscar-tarea" @bind="search" @bind:event="oninput" placeholder="Descripción, potrero o ejecutor" />
-                </div>
-                <div class="form-field compact-field">
-                    <label for="filtro-estado-tarea">Estado</label>
-                    <select id="filtro-estado-tarea" @bind="filterEstado">
-                        <option value="">Todos</option>
-                        @foreach (var estado in Enum.GetValues<TareaEstado>())
-                        {
-                            <option value="@estado">@estado</option>
-                        }
-                    </select>
-                </div>
+        <div class="filter-row">
+            <div class="form-field compact-field">
+                <label for="buscar-tarea">Buscar</label>
+                <input id="buscar-tarea" @bind="search" @bind:event="oninput" placeholder="Descripción, potrero o ejecutor" />
             </div>
+            <div class="form-field compact-field">
+                <label for="filtro-estado-tarea">Estado</label>
+                <select id="filtro-estado-tarea" @bind="filterEstado">
+                    <option value="">Todos</option>
+                    @foreach (var estado in Enum.GetValues<EstadoTarea>())
+                    {
+                        <option value="@estado">@estado</option>
+                    }
+                </select>
+            </div>
+        </div>
 
-            @if (!Filtered.Any())
-            {
-                <p class="muted">No hay tareas que coincidan con los filtros.</p>
-            }
-            else
-            {
-                <table class="table">
-                    <thead>
-                        <tr><th>Tipo</th><th>Descripción</th><th>Campaña / potrero</th><th>Fecha</th><th>Ejecutor</th><th>Recursos</th><th>Costo</th><th>Estado</th><th></th></tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var tarea in Filtered)
-                        {
-                            <tr class="@(tarea.Estado == TareaEstado.Anulada ? "row-muted" : null)">
-                                <td>@(TipoTareaService.GetById(tarea.TipoTareaId)?.Nombre ?? "—")</td>
-                                <td>@tarea.Descripcion</td>
-                                <td>@Contexto(tarea.CampanaPotreroId)</td>
-                                <td>@tarea.FechaPlanificada.ToString("dd/MM/yyyy")</td>
-                                <td>@ExecutorName(tarea)</td>
-                                <td>@tarea.Recursos.Count</td>
-                                <td>@((tarea.Costo ?? 0).ToString("C"))</td>
-                                <td>@tarea.Estado</td>
-                                <td class="actions">
-                                    <button @onclick="() => SelectTask(tarea.Id)">Detalle</button>
-                                    @if (CanCreate && tarea.Estado is TareaEstado.Planificada or TareaEstado.Asignada)
-                                    {
-                                        <button @onclick="() => EditTarea(tarea.Id)">Editar</button>
-                                    }
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            }
+        @if (cargando && tareas.Count == 0)
+        {
+            <p>Cargando...</p>
+        }
+        else if (!Filtered.Any())
+        {
+            <p class="muted">No hay tareas que coincidan con los filtros.</p>
+        }
+        else
+        {
+            <table class="table">
+                <thead>
+                    <tr><th>Tipo</th><th>Descripción</th><th>Campaña / potrero</th><th>Fecha</th><th>Ejecutor</th><th>Recursos</th><th>Costo</th><th>Estado</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var tarea in Filtered)
+                    {
+                        <tr class="@(tarea.Estado == EstadoTarea.Anulada ? "row-muted" : null)">
+                            <td>@(tarea.TipoTareaNombre ?? "—")</td>
+                            <td>@tarea.Descripcion</td>
+                            <td>@ContextoTexto(tarea.CampanaPotreroId)</td>
+                            <td>@(tarea.FechaPlanificada?.ToString("dd/MM/yyyy") ?? "—")</td>
+                            <td>@ExecutorName(tarea)</td>
+                            <td>@tarea.Recursos.Count</td>
+                            <td>@((tarea.Costo ?? 0).ToString("C"))</td>
+                            <td>@tarea.Estado</td>
+                            <td class="actions">
+                                <button @onclick="() => SelectTask(tarea.Id)">Detalle</button>
+                                @if (CanCreate && tarea.Estado is EstadoTarea.Planificada or EstadoTarea.Asignada)
+                                {
+                                    <button @onclick="() => EditTarea(tarea.Id)">Editar</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
     </section>
+
     @if (CanCreate)
     {
         <SidePanel IsOpen="formOpen" Title="@(model.Id == Guid.Empty ? "Crear tarea" : "Editar tarea")" OnClose="Cancel">
-                <EditForm Model="model" OnValidSubmit="Save">
-                    <DataAnnotationsValidator />
-                    <ValidationSummary />
+            <EditForm Model="model" OnValidSubmit="Save">
+                <DataAnnotationsValidator />
+                <ValidationSummary />
 
-                    <div class="form-field">
-                        <label for="tarea-campana">Campaña y potrero</label>
-                        <InputSelect id="tarea-campana" @bind-Value="model.CampanaPotreroId">
-                            <option value="@Guid.Empty">Seleccioná una campaña y potrero...</option>
-                            @foreach (var item in CampanaService.GetCampanaPotreros().Where(item => item.Campana.Estado is CampanaEstado.Planificada or CampanaEstado.Activa && item.Assignment.Estado is CampanaEstado.Planificada or CampanaEstado.Activa))
+                <div class="form-field">
+                    <label for="tarea-campana">Campaña y potrero</label>
+                    <InputSelect id="tarea-campana" @bind-Value="model.CampanaPotreroId">
+                        <option value="@Guid.Empty">Seleccioná una campaña y potrero...</option>
+                        @foreach (var campana in campanas.Where(item => item.Estado is EstadoCampana.Planificada or EstadoCampana.Activa))
+                        {
+                            @foreach (var potrero in campana.Potreros)
                             {
-                                <option value="@item.Assignment.Id">@item.Campana.Nombre · @PotreroNombre(item.Assignment.PotreroId)</option>
+                                <option value="@potrero.Id">@campana.Nombre · @potrero.PotreroNombre</option>
                             }
-                        </InputSelect>
-                    </div>
+                        }
+                    </InputSelect>
+                </div>
 
-                    <div class="form-field">
-                        <label for="tarea-tipo">Tipo de tarea</label>
-                        <InputSelect id="tarea-tipo" @bind-Value="model.TipoTareaId">
-                            <option value="@Guid.Empty">Seleccioná un tipo...</option>
-                            @foreach (var tipo in TipoTareaService.GetAll())
-                            {
-                                <option value="@tipo.Id">@tipo.Nombre</option>
-                            }
-                        </InputSelect>
-                    </div>
+                <div class="form-field">
+                    <label for="tarea-tipo">Tipo de tarea</label>
+                    <InputSelect id="tarea-tipo" @bind-Value="model.TipoTareaId">
+                        <option value="@Guid.Empty">Seleccioná un tipo...</option>
+                        @foreach (var tipo in tiposTarea)
+                        {
+                            <option value="@tipo.Id">@tipo.Nombre</option>
+                        }
+                    </InputSelect>
+                </div>
 
-                    <div class="form-field">
-                        <label for="tarea-evento">Evento que responde (opcional)</label>
-                        <InputSelect id="tarea-evento" @bind-Value="model.EventoId">
-                            <option value="">Sin evento asociado</option>
-                            @foreach (var evento in EventosDisponibles)
-                            {
-                                <option value="@evento.Id">@evento.Fecha.ToString("dd/MM/yyyy") · @evento.Descripcion</option>
-                            }
-                        </InputSelect>
-                    </div>
+                <div class="form-field">
+                    <label for="tarea-evento">Evento que responde (opcional)</label>
+                    <InputSelect id="tarea-evento" @bind-Value="model.EventoId">
+                        <option value="">Sin evento asociado</option>
+                        @foreach (var evento in EventosDisponibles)
+                        {
+                            <option value="@evento.Id">@evento.Fecha.ToString("dd/MM/yyyy") · @evento.Descripcion</option>
+                        }
+                    </InputSelect>
+                </div>
 
-                    <div class="form-field">
-                        <label for="tarea-descripcion">Descripción</label>
-                        <InputTextArea id="tarea-descripcion" @bind-Value="model.Descripcion" rows="3" />
-                    </div>
+                <div class="form-field">
+                    <label for="tarea-descripcion">Descripción</label>
+                    <InputTextArea id="tarea-descripcion" @bind-Value="model.Descripcion" rows="3" />
+                </div>
 
-                    <div class="form-field">
-                        <label for="tarea-fecha">Fecha planificada</label>
-                        <InputDate id="tarea-fecha" @bind-Value="model.FechaPlanificada" />
-                    </div>
+                <div class="form-field">
+                    <label for="tarea-fecha">Fecha planificada</label>
+                    <InputDate id="tarea-fecha" @bind-Value="model.FechaPlanificada" />
+                </div>
 
-                    <div class="form-actions">
-                        <button class="primary-button" type="submit">Guardar tarea</button>
-                        <button type="button" @onclick="Cancel">Cancelar</button>
-                    </div>
-                </EditForm>
-                @if (!string.IsNullOrWhiteSpace(formError))
-                {
-                    <p class="form-error" role="alert">@formError</p>
-                }
+                <div class="form-actions">
+                    <button class="primary-button" type="submit">Guardar tarea</button>
+                    <button type="button" @onclick="Cancel">Cancelar</button>
+                </div>
+            </EditForm>
+            @if (!string.IsNullOrWhiteSpace(formError))
+            {
+                <p class="form-error" role="alert">@formError</p>
+            }
         </SidePanel>
     }
 
@@ -155,7 +165,7 @@
             <div class="card-header">
                 <div>
                     <h2>@selected.Descripcion</h2>
-                    <p class="muted">@(TipoTareaService.GetById(selected.TipoTareaId)?.Nombre ?? "—") · @Contexto(selected.CampanaPotreroId) · @selected.FechaPlanificada.ToString("dd/MM/yyyy")</p>
+                    <p class="muted">@(selected.TipoTareaNombre ?? "—") · @ContextoTexto(selected.CampanaPotreroId) · @(selected.FechaPlanificada?.ToString("dd/MM/yyyy") ?? "—")</p>
                     <p class="muted">Estado: <strong>@selected.Estado</strong> · Ejecutor: @ExecutorName(selected) · Costo: @((selected.Costo ?? 0).ToString("C"))</p>
                     @if (selected.FechaRealizacion is DateTime realizada)
                     {
@@ -183,33 +193,27 @@
 
             @if (selected.Recursos.Count > 0)
             {
-                <h3>Recursos</h3>
+                <h3>Recursos registrados</h3>
                 <table class="table">
-                    <thead><tr><th>Tipo</th><th>Recurso</th><th>Cantidad</th><th>Costo</th><th></th></tr></thead>
+                    <thead><tr><th>Tipo</th><th>Recurso</th><th>Cantidad</th><th>Costo</th></tr></thead>
                     <tbody>
                         @foreach (var recurso in selected.Recursos)
                         {
                             <tr>
                                 <td>@recurso.Tipo</td>
-                                <td>@ResourceName(recurso)</td>
+                                <td>@(recurso.Nombre ?? "—")</td>
                                 <td>@recurso.Cantidad.ToString("G")</td>
-                                <td>@((recurso.Costo ?? 0).ToString("C"))</td>
-                                <td class="actions">
-                                    @if (CanAssign && selected.Estado is not (TareaEstado.Verificada or TareaEstado.Anulada))
-                                    {
-                                        <button class="destructive" @onclick="() => RemoveResource(recurso.Id)">Quitar</button>
-                                    }
-                                </td>
+                                <td>@((recurso.CostoTotal ?? 0).ToString("C"))</td>
                             </tr>
                         }
                     </tbody>
                 </table>
             }
 
-            @if (CanAssign && selected.Estado is not (TareaEstado.Verificada or TareaEstado.Anulada))
+            @if (CanAssign && selected.Estado is EstadoTarea.Planificada or EstadoTarea.Asignada)
             {
                 <div class="inline-confirm">
-                    <h3>Asignación y costos</h3>
+                    <h3>Asignación</h3>
                     <div class="filter-row">
                         <div class="form-field compact-field">
                             <label for="ejecutor">Ejecutor</label>
@@ -221,25 +225,23 @@
                                 }
                             </select>
                         </div>
-                        <div class="form-field compact-field">
-                            <label for="costo-contratista">Costo del contratista</label>
-                            <input id="costo-contratista" type="number" min="0" step="0.01" @bind="costoContratista" />
-                        </div>
                     </div>
                     <div class="form-actions">
                         <button @onclick="AssignSelected">Asignar ejecutor</button>
-                        <button @onclick="SaveCostoContratista">Guardar costo del contratista</button>
                     </div>
                 </div>
+            }
 
+            @if (CanExecute && selected.Estado is EstadoTarea.Asignada)
+            {
                 <div class="inline-confirm">
                     <h3>Agregar recurso</h3>
                     <div class="filter-row">
                         <div class="form-field compact-field">
                             <label for="recurso-tipo">Tipo</label>
                             <select id="recurso-tipo" @bind="recursoTipo">
-                                <option value="@TareaRecursoTipo.Insumo">Insumo</option>
-                                <option value="@TareaRecursoTipo.Maquinaria">Maquinaria</option>
+                                <option value="@TipoRecursoTarea.Insumo">Insumo</option>
+                                <option value="@TipoRecursoTarea.Maquinaria">Maquinaria</option>
                             </select>
                         </div>
                         <div class="form-field compact-field">
@@ -258,42 +260,73 @@
                         </div>
                     </div>
                     <div class="form-actions">
-                        <button @onclick="AddResource">Agregar recurso</button>
+                        <button @onclick="AddResource">Agregar a la realización</button>
                     </div>
-                </div>
-            }
 
-            @if (CanExecute && selected.Estado is TareaEstado.Planificada or TareaEstado.Asignada)
-            {
-                <div class="form-actions">
-                    <button class="primary-button" @onclick="MarcarRealizada">Marcar como realizada</button>
+                    @if (recursosPendientes.Count > 0)
+                    {
+                        <p class="field-help">Se registrarán al marcar la tarea como realizada.</p>
+                        <table class="table">
+                            <thead><tr><th>Tipo</th><th>Recurso</th><th>Cantidad</th><th></th></tr></thead>
+                            <tbody>
+                                @foreach (var recurso in recursosPendientes)
+                                {
+                                    <tr>
+                                        <td>@recurso.Tipo</td>
+                                        <td>@RecursoNombre(recurso)</td>
+                                        <td>@recurso.Cantidad.ToString("G")</td>
+                                        <td class="actions">
+                                            <button class="destructive" @onclick="() => RemovePending(recurso)">Quitar</button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
                 </div>
-            }
 
-            @if (CanRegisterResult && selected.Estado is not (TareaEstado.Verificada or TareaEstado.Anulada))
-            {
                 <div class="inline-confirm">
-                    <h3>Registrar resultado</h3>
-                    <textarea @bind="resultado" rows="2" placeholder="Resultado de la tarea"></textarea>
+                    <h3>Marcar como realizada</h3>
+                    <div class="form-field">
+                        <label for="resultado">Resultado</label>
+                        <textarea id="resultado" @bind="resultado" rows="2" placeholder="Resultado de la tarea"></textarea>
+                    </div>
+                    <div class="filter-row">
+                        <div class="form-field compact-field">
+                            <label for="fecha-realizacion">Fecha de realización</label>
+                            <InputDate id="fecha-realizacion" @bind-Value="fechaRealizacion" />
+                        </div>
+                        <div class="form-field compact-field">
+                            <label for="soluciono-realizacion">¿Solucionó el problema?</label>
+                            <select id="soluciono-realizacion" @bind="solucionoProblemaRealizacion">
+                                <option value="">No indicar</option>
+                                <option value="True">Sí</option>
+                                <option value="False">No</option>
+                            </select>
+                        </div>
+                    </div>
                     <div class="form-actions">
-                        <button @onclick="RegisterResult">Guardar resultado</button>
+                        <button class="primary-button" @onclick="ConfirmRealizar">Confirmar realización</button>
                     </div>
                 </div>
             }
 
-            @if (CanVerify && selected.Estado == TareaEstado.Realizada)
+            @if (CanVerify && selected.Estado == EstadoTarea.Realizada)
             {
                 <div class="inline-confirm">
                     <h3>Verificar tarea</h3>
-                    <label class="checkbox-item"><input type="checkbox" @bind="solucionoProblema" /> ¿Solucionó el problema?</label>
-                    <textarea @bind="comentarioVerificacion" rows="2" placeholder="Comentario de verificación (opcional)"></textarea>
+                    <label class="checkbox-item"><input type="checkbox" @bind="solucionoProblemaVerificacion" /> ¿Solucionó el problema?</label>
+                    <div class="form-field compact-field">
+                        <label for="fecha-comprobacion">Fecha de comprobación</label>
+                        <InputDate id="fecha-comprobacion" @bind-Value="fechaComprobacion" />
+                    </div>
                     <div class="form-actions">
                         <button class="primary-button" @onclick="Verify">Verificar</button>
                     </div>
                 </div>
             }
 
-            @if (CanAnular && selected.Estado != TareaEstado.Anulada)
+            @if (CanAnular && selected.Estado != EstadoTarea.Anulada)
             {
                 <div class="inline-confirm">
                     <h3>Anular tarea</h3>
@@ -308,49 +341,65 @@
 </RoleGuard>
 
 @code {
-    private IReadOnlyList<Tarea> tareas = [];
-    private TareaEditModel model = new();
-    private Tarea? selected;
+    private IReadOnlyList<TareaDto> tareas = [];
+    private IReadOnlyList<TipoTareaDto> tiposTarea = [];
+    private IReadOnlyList<CampanaDto> campanas = [];
+    private IReadOnlyList<EventoDto> eventos = [];
+    private IReadOnlyList<InsumoDto> insumos = [];
+    private IReadOnlyList<MaquinariaDto> maquinarias = [];
+    private IReadOnlyList<UsuarioDto> usuarios = [];
+    private IReadOnlyList<ContratistaDto> contratistas = [];
+    private TareaFormModel model = NewModel();
+    private TareaDto? selected;
     private string? formError;
     private string? pageError;
     private bool formOpen;
+    private bool cargando;
     private string search = string.Empty;
     private string filterEstado = string.Empty;
 
     private string executorKey = string.Empty;
-    private decimal? costoContratista;
-    private TareaRecursoTipo recursoTipo = TareaRecursoTipo.Insumo;
+    private TipoRecursoTarea recursoTipo = TipoRecursoTarea.Insumo;
     private Guid recursoId = Guid.Empty;
     private decimal recursoCantidad = 1;
+    private readonly List<RecursoUtilizadoDto> recursosPendientes = [];
 
     private string resultado = string.Empty;
-    private bool solucionoProblema = true;
-    private string? comentarioVerificacion;
+    private DateTime? fechaRealizacion;
+    private bool? solucionoProblemaRealizacion;
+    private bool solucionoProblemaVerificacion = true;
+    private DateTime? fechaComprobacion;
     private string motivoAnulacion = string.Empty;
 
     private UserRole? CurrentRole => Auth.CurrentUser?.Role;
     private bool CanCreate => CurrentRole is { } role && Permissions.CanCreateTarea(role);
     private bool CanAssign => CurrentRole is { } role && Permissions.CanAssignTarea(role);
     private bool CanExecute => CurrentRole is { } role && Permissions.CanExecuteTarea(role);
-    private bool CanRegisterResult => CurrentRole is { } role && Permissions.CanRegisterResult(role);
     private bool CanVerify => CurrentRole is { } role && Permissions.CanVerifyTarea(role);
     private bool CanAnular => CurrentRole is { } role && Permissions.CanAnularTarea(role);
 
-    private IEnumerable<Tarea> Filtered => tareas.Where(tarea =>
+    private IEnumerable<TareaDto> Filtered => tareas.Where(tarea =>
         (string.IsNullOrWhiteSpace(search) ||
-         tarea.Descripcion.Contains(search, StringComparison.OrdinalIgnoreCase) ||
-         Contexto(tarea.CampanaPotreroId).Contains(search, StringComparison.OrdinalIgnoreCase) ||
+         (tarea.Descripcion?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+         ContextoTexto(tarea.CampanaPotreroId).Contains(search, StringComparison.OrdinalIgnoreCase) ||
          ExecutorName(tarea).Contains(search, StringComparison.OrdinalIgnoreCase)) &&
         (string.IsNullOrWhiteSpace(filterEstado) || tarea.Estado.ToString() == filterEstado));
 
-    private IEnumerable<Evento> EventosDisponibles => model.CampanaPotreroId == Guid.Empty
+    private IEnumerable<EventoDto> EventosDisponibles => model.CampanaPotreroId == Guid.Empty
         ? []
-        : EventoService.GetAll(includeAnulados: false).Where(evento => evento.CampanaPotreroId == model.CampanaPotreroId);
+        : eventos.Where(evento =>
+            evento.CampanaPotreroId == model.CampanaPotreroId &&
+            evento.Estado == EstadoEvento.Registrado);
 
-    private IEnumerable<Insumo> InsumosDisponibles => selected is null ? [] : InsumoService.GetAll().Where(item => item.EmpresaId == selected.EmpresaId);
-    private IEnumerable<MaquinariaModel> MaquinariaDisponible => selected is null ? [] : MaquinariaService.GetAll().Where(item => item.EmpresaId == selected.EmpresaId);
+    private IEnumerable<InsumoDto> InsumosDisponibles => selected is null
+        ? []
+        : insumos.Where(item => item.EmpresaId == selected.EmpresaId && item.Activo);
 
-    private IEnumerable<(Guid Id, string Nombre)> RecursosDisponibles => recursoTipo == TareaRecursoTipo.Insumo
+    private IEnumerable<MaquinariaDto> MaquinariaDisponible => selected is null
+        ? []
+        : maquinarias.Where(item => item.EmpresaId == selected.EmpresaId && item.Activo);
+
+    private IEnumerable<(Guid Id, string Nombre)> RecursosDisponibles => recursoTipo == TipoRecursoTarea.Insumo
         ? InsumosDisponibles.Select(item => (item.Id, item.Nombre))
         : MaquinariaDisponible.Select(item => (item.Id, item.Nombre));
 
@@ -358,57 +407,104 @@
     {
         get
         {
-            if (selected is null) return [];
+            if (selected is null)
+            {
+                return [];
+            }
 
             var options = new List<(string, string)>();
-            options.AddRange(UserService.GetAll()
-                .Where(user => user.Rol == UserRole.OperarioCampo && user.EmpresaId == selected.EmpresaId)
-                .Select(user => ($"{TareaEjecutorTipo.Usuario}:{user.Id}", $"Operario · {user.Nombre}")));
-            options.AddRange(ContratistaService.GetAll()
-                .Where(contractor => contractor.EmpresaId == selected.EmpresaId)
-                .Select(contractor => ($"{TareaEjecutorTipo.Contratista}:{contractor.Id}", $"Contratista · {contractor.Nombre}")));
+            options.AddRange(usuarios
+                .Where(usuario => usuario.Rol == RolApi.OperarioCampo &&
+                                  usuario.Activo &&
+                                  usuario.EmpresaId == selected.EmpresaId)
+                .Select(usuario => ($"{TipoEjecutorTarea.Usuario}:{usuario.Id}", $"Operario · {usuario.Nombre}")));
+            options.AddRange(contratistas
+                .Where(contratista => contratista.EmpresaId == selected.EmpresaId && contratista.Activo)
+                .Select(contratista => ($"{TipoEjecutorTarea.Contratista}:{contratista.Id}", $"Contratista · {contratista.Nombre}")));
             return options;
         }
     }
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        TareaService.StateChanged += Load;
-        Load();
+        Notificador.Cambio += HandleChanged;
+        await LoadAsync();
     }
 
-    private void Load()
+    private async Task LoadAsync()
     {
-        tareas = TareaService.GetAll();
-        if (selected is not null)
+        cargando = true;
+
+        try
         {
-            selected = TareaService.GetById(selected.Id);
+            tareas = await TareaService.GetAllAsync(incluirAnuladas: true);
+            tiposTarea = await TipoTareaService.GetAllAsync(incluirInactivos: true);
+            campanas = await CampanaService.GetAllAsync(incluirAnuladas: false);
+            eventos = await EventoService.GetAllAsync(incluirAnulados: false);
+            insumos = await InsumoService.GetAllAsync(incluirInactivos: true);
+            maquinarias = await MaquinariaService.GetAllAsync(incluirInactivos: true);
+            usuarios = await UserService.GetAllAsync(incluirInactivos: false);
+            contratistas = await ContratistaService.GetAllAsync(incluirInactivos: false);
+
+            if (selected is not null)
+            {
+                selected = tareas.FirstOrDefault(tarea => tarea.Id == selected.Id);
+            }
+        }
+        catch (InvalidOperationException exception)
+        {
+            pageError = exception.Message;
+        }
+        finally
+        {
+            cargando = false;
+        }
+    }
+
+    private void HandleChanged(string modulo)
+    {
+        if (modulo != ModulosDatos.Tareas &&
+            modulo != ModulosDatos.Eventos &&
+            modulo != ModulosDatos.Insumos &&
+            modulo != ModulosDatos.Maquinaria &&
+            modulo != ModulosDatos.Contratistas &&
+            modulo != ModulosDatos.Usuarios &&
+            modulo != ModulosDatos.Campanas &&
+            modulo != ModulosDatos.EmpresaActiva)
+        {
+            return;
         }
 
-        InvokeAsync(StateHasChanged);
+        _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        });
     }
 
     private void NewTarea()
     {
-        model = new TareaEditModel { FechaPlanificada = SigaTime.TodayLocal };
+        model = NewModel();
         formError = null;
         formOpen = true;
     }
 
     private void EditTarea(Guid id)
     {
-        var tarea = TareaService.GetById(id);
-        if (tarea is null) return;
+        var tarea = tareas.FirstOrDefault(candidato => candidato.Id == id);
+        if (tarea is null)
+        {
+            return;
+        }
 
-        model = new TareaEditModel
+        model = new TareaFormModel
         {
             Id = tarea.Id,
             CampanaPotreroId = tarea.CampanaPotreroId,
             EventoId = tarea.EventoId,
             TipoTareaId = tarea.TipoTareaId,
-            Descripcion = tarea.Descripcion,
-            FechaPlanificada = tarea.FechaPlanificada,
-            Estado = tarea.Estado,
+            Descripcion = tarea.Descripcion ?? string.Empty,
+            FechaPlanificada = tarea.FechaPlanificada ?? SigaTime.TodayLocal,
             Version = tarea.Version
         };
         formError = null;
@@ -418,36 +514,43 @@
     private void Cancel()
     {
         formOpen = false;
-        model = new TareaEditModel { FechaPlanificada = SigaTime.TodayLocal };
+        model = NewModel();
         formError = null;
     }
 
-    private void Save()
+    private async Task Save()
     {
         formError = null;
+
         try
         {
-            var assignment = CampanaService.GetCampanaPotreroById(model.CampanaPotreroId)
-                ?? throw new InvalidOperationException("Debe seleccionar una campaña y potrero.");
-
-            var draft = new Tarea
-            {
-                Id = model.Id,
-                EmpresaId = assignment.Campana.EmpresaId,
-                CampanaPotreroId = model.CampanaPotreroId,
-                EventoId = model.EventoId,
-                TipoTareaId = model.TipoTareaId,
-                Descripcion = model.Descripcion.Trim(),
-                FechaPlanificada = model.FechaPlanificada.Date
-            };
-
             if (model.Id == Guid.Empty)
             {
-                TareaService.Create(draft);
+                await TareaService.CreateAsync(new CrearTareaDto
+                {
+                    EmpresaId = Contexto.EmpresaActivaId,
+                    CampanaPotreroId = model.CampanaPotreroId,
+                    EventoId = model.EventoId,
+                    TipoTareaId = model.TipoTareaId,
+                    Descripcion = model.Descripcion.Trim(),
+                    FechaPlanificada = model.FechaPlanificada.Date
+                });
             }
             else
             {
-                TareaService.Update(draft, model.Version);
+                var actualizada = await TareaService.UpdateAsync(new ActualizarTareaDto
+                {
+                    Id = model.Id,
+                    TipoTareaId = model.TipoTareaId,
+                    Descripcion = model.Descripcion.Trim(),
+                    FechaPlanificada = model.FechaPlanificada.Date,
+                    Version = model.Version
+                });
+
+                if (actualizada is null)
+                {
+                    throw new InvalidOperationException("No se encontró la tarea.");
+                }
             }
 
             Cancel();
@@ -460,30 +563,53 @@
 
     private void SelectTask(Guid id)
     {
-        selected = TareaService.GetById(id);
+        selected = tareas.FirstOrDefault(tarea => tarea.Id == id);
         pageError = null;
         executorKey = string.Empty;
-        costoContratista = selected?.CostoContratista;
         recursoId = Guid.Empty;
         recursoCantidad = 1;
+        recursosPendientes.Clear();
         resultado = selected?.Resultado ?? string.Empty;
+        fechaRealizacion = null;
+        solucionoProblemaRealizacion = selected?.SolucionoProblema;
+        solucionoProblemaVerificacion = selected?.SolucionoProblema ?? true;
+        fechaComprobacion = null;
         motivoAnulacion = string.Empty;
-        comentarioVerificacion = null;
     }
 
-    private void AssignSelected()
+    private async Task RecargarSeleccionAsync()
     {
-        if (selected is null) return;
+        if (selected is null)
+        {
+            return;
+        }
+
+        var id = selected.Id;
+        await LoadAsync();
+        selected = tareas.FirstOrDefault(tarea => tarea.Id == id);
+    }
+
+    private async Task AssignSelected()
+    {
+        if (selected is null)
+        {
+            return;
+        }
+
         pageError = null;
+
         try
         {
             var parts = executorKey.Split(':');
-            if (parts.Length != 2 || !Enum.TryParse<TareaEjecutorTipo>(parts[0], out var tipo) || !Guid.TryParse(parts[1], out var executorId))
+            if (parts.Length != 2 ||
+                !Enum.TryParse<TipoEjecutorTarea>(parts[0], out var tipo) ||
+                !Guid.TryParse(parts[1], out var executorId))
             {
-                throw new InvalidOperationException("Seleccione un ejecutor válido.");
+                throw new InvalidOperationException("Seleccioná un ejecutor válido.");
             }
 
-            TareaService.Assign(selected.Id, executorId, tipo);
+            await TareaService.AssignAsync(selected.Id, executorId, tipo, selected.Version);
+            await RecargarSeleccionAsync();
         }
         catch (InvalidOperationException exception)
         {
@@ -491,37 +617,49 @@
         }
     }
 
-    private void SaveCostoContratista()
-    {
-        if (selected is null) return;
-        pageError = null;
-        try
-        {
-            TareaService.SetCostoContratista(selected.Id, costoContratista ?? 0);
-        }
-        catch (InvalidOperationException exception)
-        {
-            pageError = exception.Message;
-        }
-    }
+    private string RecursoNombre(RecursoUtilizadoDto recurso) =>
+        recurso.Tipo == TipoRecursoTarea.Insumo
+            ? insumos.FirstOrDefault(item => item.Id == recurso.RecursoId)?.Nombre ?? "Insumo"
+            : maquinarias.FirstOrDefault(item => item.Id == recurso.RecursoId)?.Nombre ?? "Maquinaria";
 
     private void AddResource()
     {
-        if (selected is null) return;
+        if (selected is null)
+        {
+            return;
+        }
+
         pageError = null;
+
         try
         {
             if (recursoId == Guid.Empty)
             {
-                throw new InvalidOperationException("Seleccione un recurso.");
+                throw new InvalidOperationException("Seleccioná un recurso.");
             }
 
-            TareaService.AddResource(selected.Id, new TareaRecurso
+            if (recursoCantidad <= 0)
             {
-                Tipo = recursoTipo,
-                RecursoId = recursoId,
-                Cantidad = recursoCantidad
-            });
+                throw new InvalidOperationException("La cantidad debe ser mayor que cero.");
+            }
+
+            var existente = recursosPendientes.FirstOrDefault(
+                recurso => recurso.Tipo == recursoTipo && recurso.RecursoId == recursoId);
+
+            if (existente is not null)
+            {
+                existente.Cantidad += recursoCantidad;
+            }
+            else
+            {
+                recursosPendientes.Add(new RecursoUtilizadoDto
+                {
+                    Tipo = recursoTipo,
+                    RecursoId = recursoId,
+                    Cantidad = recursoCantidad
+                });
+            }
+
             recursoId = Guid.Empty;
             recursoCantidad = 1;
         }
@@ -531,13 +669,36 @@
         }
     }
 
-    private void RemoveResource(Guid resourceId)
+    private void RemovePending(RecursoUtilizadoDto recurso) =>
+        recursosPendientes.Remove(recurso);
+
+    private async Task ConfirmRealizar()
     {
-        if (selected is null) return;
+        if (selected is null)
+        {
+            return;
+        }
+
         pageError = null;
+
         try
         {
-            TareaService.RemoveResource(selected.Id, resourceId);
+            if (string.IsNullOrWhiteSpace(resultado))
+            {
+                throw new InvalidOperationException("Ingresá el resultado de la tarea.");
+            }
+
+            await TareaService.RealizarAsync(selected.Id, new RealizarTareaDto
+            {
+                Resultado = resultado.Trim(),
+                FechaRealizacion = fechaRealizacion?.Date,
+                SolucionoProblema = solucionoProblemaRealizacion,
+                Recursos = recursosPendientes.ToList(),
+                Version = selected.Version
+            });
+
+            recursosPendientes.Clear();
+            await RecargarSeleccionAsync();
         }
         catch (InvalidOperationException exception)
         {
@@ -545,13 +706,25 @@
         }
     }
 
-    private void MarcarRealizada()
+    private async Task Verify()
     {
-        if (selected is null) return;
+        if (selected is null)
+        {
+            return;
+        }
+
         pageError = null;
+
         try
         {
-            TareaService.MarcarRealizada(selected.Id);
+            await TareaService.VerifyAsync(selected.Id, new VerificarTareaDto
+            {
+                SolucionoProblema = solucionoProblemaVerificacion,
+                FechaComprobacion = fechaComprobacion?.Date,
+                Version = selected.Version
+            });
+
+            await RecargarSeleccionAsync();
         }
         catch (InvalidOperationException exception)
         {
@@ -559,42 +732,30 @@
         }
     }
 
-    private void RegisterResult()
+    private async Task Anular()
     {
-        if (selected is null) return;
-        pageError = null;
-        try
+        if (selected is null)
         {
-            TareaService.RegisterResult(selected.Id, resultado);
+            return;
         }
-        catch (InvalidOperationException exception)
-        {
-            pageError = exception.Message;
-        }
-    }
 
-    private void Verify()
-    {
-        if (selected is null) return;
         pageError = null;
-        try
-        {
-            TareaService.Verify(selected.Id, solucionoProblema, comentarioVerificacion);
-        }
-        catch (InvalidOperationException exception)
-        {
-            pageError = exception.Message;
-        }
-    }
 
-    private void Anular()
-    {
-        if (selected is null) return;
-        pageError = null;
         try
         {
-            TareaService.Anular(selected.Id, motivoAnulacion);
+            if (string.IsNullOrWhiteSpace(motivoAnulacion))
+            {
+                throw new InvalidOperationException("Ingresá el motivo de anulación.");
+            }
+
+            await TareaService.AnularAsync(selected.Id, new AnularTareaDto
+            {
+                MotivoAnulacion = motivoAnulacion.Trim(),
+                Version = selected.Version
+            });
+
             motivoAnulacion = string.Empty;
+            await RecargarSeleccionAsync();
         }
         catch (InvalidOperationException exception)
         {
@@ -602,27 +763,38 @@
         }
     }
 
-    private string ExecutorName(Tarea tarea)
+    private static string ExecutorName(TareaDto tarea) =>
+        tarea.EjecutorId is null ? "Sin asignar" : tarea.EjecutorNombre ?? "—";
+
+    private string ContextoTexto(Guid assignmentId)
     {
-        if (tarea.EjecutorId is not Guid id) return "Sin asignar";
-        return tarea.EjecutorTipo == TareaEjecutorTipo.Contratista
-            ? ContratistaService.GetById(id)?.Nombre ?? "Contratista"
-            : UserService.GetById(id)?.Nombre ?? "Usuario";
+        foreach (var campana in campanas)
+        {
+            var potrero = campana.Potreros.FirstOrDefault(item => item.Id == assignmentId);
+            if (potrero is not null)
+            {
+                return $"{campana.Nombre} · {potrero.PotreroNombre}";
+            }
+        }
+
+        return "—";
     }
 
-    private string ResourceName(TareaRecurso resource) => resource.Tipo == TareaRecursoTipo.Insumo
-        ? InsumoService.GetById(resource.RecursoId)?.Nombre ?? "Insumo"
-        : MaquinariaService.GetById(resource.RecursoId)?.Nombre ?? "Maquinaria";
+    public void Dispose() => Notificador.Cambio -= HandleChanged;
 
-    private string Contexto(Guid assignmentId)
+    private static TareaFormModel NewModel() => new() { FechaPlanificada = SigaTime.TodayLocal };
+
+    private sealed class TareaFormModel
     {
-        var assignment = CampanaService.GetCampanaPotreroById(assignmentId);
-        return assignment is null
-            ? "—"
-            : $"{assignment.Value.Campana.Nombre} · {PotreroNombre(assignment.Value.Assignment.PotreroId)}";
+        public Guid Id { get; set; }
+        public Guid CampanaPotreroId { get; set; }
+        public Guid? EventoId { get; set; }
+        public Guid TipoTareaId { get; set; }
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "La descripción es obligatoria.")]
+        public string Descripcion { get; set; } = string.Empty;
+
+        public DateTime FechaPlanificada { get; set; }
+        public long Version { get; set; }
     }
-
-    private string PotreroNombre(Guid potreroId) => PotreroService.GetById(potreroId)?.Nombre ?? "Potrero no disponible";
-
-    public void Dispose() => TareaService.StateChanged -= Load;
 }

@@ -33,32 +33,106 @@ public sealed class ClienteApi
         _token = token;
     }
 
+    /// <summary>Dirección base de la API, usada para resolver URLs relativas de archivos.</summary>
+    public Uri? BaseAddress => _http.BaseAddress;
+
     public Task<T> GetAsync<T>(string ruta, CancellationToken cancellationToken = default) =>
-        EnviarAsync<T>(HttpMethod.Get, ruta, null, cancellationToken);
+        EnviarJsonAsync<T>(HttpMethod.Get, ruta, null, cancellationToken);
 
     public Task<T> PostAsync<T>(string ruta, object cuerpo, CancellationToken cancellationToken = default) =>
-        EnviarAsync<T>(HttpMethod.Post, ruta, cuerpo, cancellationToken);
+        EnviarJsonAsync<T>(HttpMethod.Post, ruta, cuerpo, cancellationToken);
 
     public Task<T> PutAsync<T>(string ruta, object cuerpo, CancellationToken cancellationToken = default) =>
-        EnviarAsync<T>(HttpMethod.Put, ruta, cuerpo, cancellationToken);
+        EnviarJsonAsync<T>(HttpMethod.Put, ruta, cuerpo, cancellationToken);
 
     public Task DeleteAsync(string ruta, CancellationToken cancellationToken = default) =>
         EnviarSinRespuestaAsync(HttpMethod.Delete, ruta, null, cancellationToken);
 
-    private async Task<T> EnviarAsync<T>(
+    /// <summary>Para acciones que responden 204 sin cuerpo.</summary>
+    public Task PostSinRespuestaAsync(
+        string ruta,
+        object cuerpo,
+        CancellationToken cancellationToken = default) =>
+        EnviarSinRespuestaAsync(HttpMethod.Post, ruta, cuerpo, cancellationToken);
+
+    /// <summary>Para acciones que responden 204 sin cuerpo y no llevan payload.</summary>
+    public Task PostSinRespuestaAsync(
+        string ruta,
+        CancellationToken cancellationToken = default) =>
+        EnviarSinRespuestaAsync(HttpMethod.Post, ruta, null, cancellationToken);
+
+    /// <summary>Subida de archivos con <c>multipart/form-data</c>.</summary>
+    public async Task<T> PostMultipartAsync<T>(
+        string ruta,
+        MultipartFormDataContent contenido,
+        CancellationToken cancellationToken = default)
+    {
+        using var request = CrearSolicitud(HttpMethod.Post, ruta);
+        request.Content = contenido;
+        using var response = await EjecutarAsync(request, cancellationToken);
+        await ValidarAsync(response, cancellationToken);
+
+        try
+        {
+            return await response.Content.ReadFromJsonAsync<T>(Json, cancellationToken)
+                   ?? throw new ApiException(
+                       (int)response.StatusCode,
+                       "La API devolvió una respuesta vacía.");
+        }
+        catch (JsonException)
+        {
+            throw new ApiException(
+                (int)response.StatusCode,
+                "La API devolvió un formato inesperado al subir el archivo.");
+        }
+    }
+
+    /// <summary>Descarga binaria autenticada (por ejemplo el contenido de una foto).</summary>
+    public async Task<byte[]?> GetBytesAsync(
+        string ruta,
+        CancellationToken cancellationToken = default)
+    {
+        using var request = CrearSolicitud(HttpMethod.Get, ruta);
+        using var response = await EjecutarAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        await ValidarAsync(response, cancellationToken);
+        return await response.Content.ReadAsByteArrayAsync(cancellationToken);
+    }
+
+    private async Task<T> EnviarJsonAsync<T>(
         HttpMethod metodo,
         string ruta,
         object? cuerpo,
         CancellationToken cancellationToken)
     {
-        using var response = await EjecutarAsync(metodo, ruta, cuerpo, cancellationToken);
+        using var request = CrearSolicitud(metodo, ruta);
 
+        if (cuerpo is not null)
+        {
+            request.Content = JsonContent.Create(cuerpo, cuerpo.GetType(), options: Json);
+        }
+
+        using var response = await EjecutarAsync(request, cancellationToken);
         await ValidarAsync(response, cancellationToken);
 
-        return await response.Content.ReadFromJsonAsync<T>(Json, cancellationToken)
-               ?? throw new ApiException(
-                   (int)response.StatusCode,
-                   "La API devolvió una respuesta vacía.");
+        try
+        {
+            return await response.Content.ReadFromJsonAsync<T>(Json, cancellationToken)
+                   ?? throw new ApiException(
+                       (int)response.StatusCode,
+                       "La API devolvió una respuesta vacía.");
+        }
+        catch (JsonException)
+        {
+            throw new ApiException(
+                (int)response.StatusCode,
+                "La API devolvió un formato inesperado. Revisá la configuración o la versión del servidor.");
+        }
     }
 
     private async Task EnviarSinRespuestaAsync(
@@ -67,28 +141,33 @@ public sealed class ClienteApi
         object? cuerpo,
         CancellationToken cancellationToken)
     {
-        using var response = await EjecutarAsync(metodo, ruta, cuerpo, cancellationToken);
-        await ValidarAsync(response, cancellationToken);
-    }
-
-    private async Task<HttpResponseMessage> EjecutarAsync(
-        HttpMethod metodo,
-        string ruta,
-        object? cuerpo,
-        CancellationToken cancellationToken)
-    {
-        using var request = new HttpRequestMessage(metodo, ruta);
-
-        if (_token.Token is { } token)
-        {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        }
+        using var request = CrearSolicitud(metodo, ruta);
 
         if (cuerpo is not null)
         {
             request.Content = JsonContent.Create(cuerpo, cuerpo.GetType(), options: Json);
         }
 
+        using var response = await EjecutarAsync(request, cancellationToken);
+        await ValidarAsync(response, cancellationToken);
+    }
+
+    private HttpRequestMessage CrearSolicitud(HttpMethod metodo, string ruta)
+    {
+        var request = new HttpRequestMessage(metodo, ruta);
+
+        if (_token.Token is { } token)
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
+
+        return request;
+    }
+
+    private async Task<HttpResponseMessage> EjecutarAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
         try
         {
             return await _http.SendAsync(request, cancellationToken);

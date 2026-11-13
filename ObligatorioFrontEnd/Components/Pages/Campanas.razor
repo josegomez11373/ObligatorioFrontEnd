@@ -79,7 +79,7 @@
         @if (campanaCerrar is not null)
         {
             <div class="inline-confirm">
-                <p><strong>Cerrar campaña</strong> — se cierran también sus potreros y se conserva el historial.</p>
+                <p><strong>Cerrar campaña</strong> — se conserva el historial de la campaña y sus potreros.</p>
                 <div class="form-actions">
                     <button type="button" class="destructive" @onclick="ConfirmCerrar">Confirmar cierre</button>
                     <button type="button" @onclick="CancelCerrar">Cancelar</button>
@@ -219,7 +219,7 @@
                 CultivoId = campana.CultivoId,
                 FechaInicio = campana.FechaInicio,
                 FechaFin = campana.FechaFin,
-                Estado = campana.Estado.AModelo(),
+                Estado = campana.Estado,
                 PotreroIds = campana.Potreros.Select(potrero => potrero.PotreroId).ToList(),
                 Version = campana.Version
             };
@@ -291,7 +291,6 @@
             }
             else
             {
-                // El contrato de la API no permite cambiar los potreros al editar.
                 var actualizada = await CampanaService.UpdateAsync(new ActualizarCampanaDto
                 {
                     Id = model.Id,
@@ -299,7 +298,8 @@
                     CultivoId = model.CultivoId,
                     FechaInicio = model.FechaInicio.Date,
                     FechaFin = model.FechaFin?.Date,
-                    Estado = model.Estado.AApi(),
+                    Estado = model.Estado,
+                    PotreroIds = model.PotreroIds,
                     Version = model.Version
                 });
 
@@ -366,7 +366,7 @@
     {
         EmpresaId = Contexto.EmpresaActivaId ?? Auth.CurrentUser?.EmpresaId ?? Guid.Empty,
         FechaInicio = SigaTime.TodayLocal,
-        Estado = CampanaEstado.Planificada
+        Estado = EstadoCampana.Planificada
     };
 
     private static string PotrerosText(CampanaDto campana)

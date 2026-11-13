@@ -25,8 +25,17 @@ public sealed record UsuarioSesionDto(
     RolApi Rol,
     Guid? EmpresaId,
     string? EmpresaNombre,
-    IReadOnlyList<Guid> EstablecimientoIds,
-    string EtiquetaAlcance);
+    string EtiquetaAlcance)
+{
+    private readonly IReadOnlyList<Guid>? establecimientoIds;
+
+    /// <summary>Se normaliza a vacía si la API omite o envía <c>null</c>.</summary>
+    public IReadOnlyList<Guid> EstablecimientoIds
+    {
+        get => establecimientoIds ?? [];
+        init => establecimientoIds = value;
+    }
+}
 
 /// <summary>Espejo de ApiSiga.Contracts.Auth.RespuestaInicioSesionDto.</summary>
 public sealed record RespuestaInicioSesionDto(

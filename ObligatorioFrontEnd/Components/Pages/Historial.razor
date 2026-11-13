@@ -1,12 +1,12 @@
 @page "/historial"
 @implements IDisposable
-@inject CampanaService CampanaService
-@inject EventoService EventoService
-@inject FotografiaService FotografiaService
-@inject TareaService TareaService
-@inject PotreroService PotreroService
-@inject TipoEventoService TipoEventoService
-@inject TipoTareaService TipoTareaService
+@inject IServicioCampanas CampanaService
+@inject IServicioEventos EventoService
+@inject IServicioTareas TareaService
+@inject IServicioFotografias FotografiaService
+@inject NotificadorDatos Notificador
+
+@using ObligatorioFrontEnd.Api.Contratos
 
 <PageTitle>Historial | SIGA</PageTitle>
 
@@ -18,6 +18,11 @@
             <p class="page-intro">Consultá cronológicamente los eventos, fotografías, tareas y resultados de una campaña.</p>
         </div>
     </section>
+
+    @if (!string.IsNullOrWhiteSpace(error))
+    {
+        <p class="form-error" role="alert">@error</p>
+    }
 
     <section class="card">
         <div class="card-header">
@@ -33,9 +38,9 @@
         <div class="filter-row">
             <div class="form-field compact-field">
                 <label for="campana">Campaña</label>
-                <InputSelect id="campana" @bind-Value="selectedCampanaId">
+                <InputSelect id="campana" @bind-Value="selectedCampanaId" @bind-Value:after="CargarFotosCampanaAsync">
                     <option value="@Guid.Empty">Seleccioná una campaña...</option>
-                    @foreach (var campana in CampanaService.GetAll())
+                    @foreach (var campana in campanas)
                     {
                         <option value="@campana.Id">@campana.Nombre · @campana.Estado.DisplayName()</option>
                     }
@@ -54,7 +59,11 @@
         @if (selectedCampanaId != Guid.Empty)
         {
             var entries = Entries.ToList();
-            if (!entries.Any())
+            if (cargando && entries.Count == 0)
+            {
+                <p>Cargando...</p>
+            }
+            else if (!entries.Any())
             {
                 <p class="muted">Todavía no hay registros para esta campaña.</p>
             }
@@ -81,7 +90,7 @@
                                         @foreach (var foto in entry.Fotos)
                                         {
                                             <figure class="photo-card @(foto.Visible ? null : "photo-hidden")">
-                                                @if (foto.Visible && FotografiaService.GetUrl(foto) is string url)
+                                                @if (foto.Visible && fotoUrls.GetValueOrDefault(foto.Id) is string url)
                                                 {
                                                     <img src="@url" alt="@foto.NombreArchivo" loading="lazy" />
                                                 }
@@ -104,8 +113,14 @@
 </RoleGuard>
 
 @code {
+    private IReadOnlyList<CampanaDto> campanas = [];
+    private IReadOnlyList<EventoDto> eventos = [];
+    private IReadOnlyList<TareaDto> tareas = [];
     private Guid selectedCampanaId;
     private string filter = string.Empty;
+    private string? error;
+    private bool cargando;
+    private readonly Dictionary<Guid, string?> fotoUrls = [];
 
     private sealed record HistoryEntry(
         DateTime Fecha,
@@ -114,37 +129,40 @@
         string Descripcion,
         string Detalle,
         decimal? Costo,
-        IReadOnlyList<Fotografia> Fotos);
+        IReadOnlyList<FotografiaDto> Fotos);
 
     private IEnumerable<HistoryEntry> Entries
     {
         get
         {
-            if (selectedCampanaId == Guid.Empty) return [];
+            if (selectedCampanaId == Guid.Empty)
+            {
+                return [];
+            }
 
-            var eventos = EventoService.GetAll()
-                .Where(evento => CampanaService.GetCampanaPotreroById(evento.CampanaPotreroId)?.Campana.Id == selectedCampanaId)
+            var eventosCampana = eventos
+                .Where(evento => AsignacionIdsCampana().Contains(evento.CampanaPotreroId))
                 .Select(evento => new HistoryEntry(
                     evento.Fecha,
                     "Evento",
-                    $"{TipoEventoService.GetById(evento.TipoEventoId)?.Nombre ?? "Evento"} · {Potrero(evento.CampanaPotreroId)}",
-                    evento.Descripcion,
-                    $"Registrado por {evento.RegistradoPor ?? evento.CreatedBy ?? "—"} · {evento.Estado}",
+                    $"{evento.TipoEventoNombre ?? "Evento"} · {evento.PotreroNombre ?? "—"}",
+                    evento.Descripcion ?? "—",
+                    $"Registrado por {evento.RegistradoPor ?? "—"} · {evento.Estado}",
                     null,
-                    FotografiaService.GetByEvento(evento.Id)));
+                    evento.Fotografias));
 
-            var tareas = TareaService.GetAll()
-                .Where(tarea => CampanaService.GetCampanaPotreroById(tarea.CampanaPotreroId)?.Campana.Id == selectedCampanaId)
+            var tareasCampana = tareas
+                .Where(tarea => AsignacionIdsCampana().Contains(tarea.CampanaPotreroId))
                 .Select(tarea => new HistoryEntry(
-                    tarea.FechaPlanificada,
+                    tarea.FechaPlanificada ?? tarea.FechaCreacion,
                     "Tarea",
-                    $"{TipoTareaService.GetById(tarea.TipoTareaId)?.Nombre ?? "Tarea"} · {Potrero(tarea.CampanaPotreroId)}",
-                    tarea.Descripcion,
+                    $"{tarea.TipoTareaNombre ?? "Tarea"} · {tarea.PotreroNombre ?? "—"}",
+                    tarea.Descripcion ?? "—",
                     $"Estado: {tarea.Estado}{(string.IsNullOrWhiteSpace(tarea.Resultado) ? string.Empty : $" · Resultado: {tarea.Resultado}")}",
                     tarea.Costo,
                     []));
 
-            var all = eventos.Concat(tareas);
+            var all = eventosCampana.Concat(tareasCampana);
             return (filter switch
             {
                 "Evento" => all.Where(entry => entry.Tipo == "Evento"),
@@ -154,25 +172,77 @@
         }
     }
 
-    private string Potrero(Guid assignmentId)
+    protected override async Task OnInitializedAsync()
     {
-        var assignment = CampanaService.GetCampanaPotreroById(assignmentId);
-        return assignment is null ? "—" : PotreroService.GetById(assignment.Value.Assignment.PotreroId)?.Nombre ?? "—";
+        Notificador.Cambio += HandleChanged;
+        await LoadAsync();
     }
 
-    protected override void OnInitialized()
+    private async Task LoadAsync()
     {
-        EventoService.StateChanged += Reload;
-        TareaService.StateChanged += Reload;
-        FotografiaService.StateChanged += Reload;
+        cargando = true;
+        error = null;
+
+        try
+        {
+            campanas = await CampanaService.GetAllAsync(incluirAnuladas: true);
+            eventos = await EventoService.GetAllAsync(incluirAnulados: true);
+            tareas = await TareaService.GetAllAsync(incluirAnuladas: true);
+            await CargarFotosCampanaAsync();
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+        finally
+        {
+            cargando = false;
+        }
     }
 
-    private void Reload() => InvokeAsync(StateHasChanged);
+    private HashSet<Guid> AsignacionIdsCampana() =>
+        campanas
+            .Where(campana => campana.Id == selectedCampanaId)
+            .SelectMany(campana => campana.Potreros.Select(potrero => potrero.Id))
+            .ToHashSet();
 
-    public void Dispose()
+    private async Task CargarFotosCampanaAsync()
     {
-        EventoService.StateChanged -= Reload;
-        TareaService.StateChanged -= Reload;
-        FotografiaService.StateChanged -= Reload;
+        fotoUrls.Clear();
+
+        if (selectedCampanaId == Guid.Empty)
+        {
+            return;
+        }
+
+        var asignacionIds = AsignacionIdsCampana();
+
+        foreach (var evento in eventos.Where(evento => asignacionIds.Contains(evento.CampanaPotreroId)))
+        {
+            foreach (var foto in evento.Fotografias)
+            {
+                fotoUrls[foto.Id] = await FotografiaService.ObtenerDataUrlAsync(foto);
+            }
+        }
     }
+
+    private void HandleChanged(string modulo)
+    {
+        if (modulo != ModulosDatos.Eventos &&
+            modulo != ModulosDatos.Fotos &&
+            modulo != ModulosDatos.Tareas &&
+            modulo != ModulosDatos.Campanas &&
+            modulo != ModulosDatos.EmpresaActiva)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose() => Notificador.Cambio -= HandleChanged;
 }

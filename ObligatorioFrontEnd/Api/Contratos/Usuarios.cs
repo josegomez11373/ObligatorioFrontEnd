@@ -12,9 +12,18 @@ public sealed record UsuarioDto(
     bool Activo,
     Guid? EmpresaId,
     string? EmpresaNombre,
-    IReadOnlyList<EstablecimientoAsignadoDto> Establecimientos,
     DateTime FechaCreacion,
-    long Version);
+    long Version)
+{
+    private readonly IReadOnlyList<EstablecimientoAsignadoDto>? establecimientos;
+
+    /// <summary>Se normaliza a vacía si la API omite o envía <c>null</c>.</summary>
+    public IReadOnlyList<EstablecimientoAsignadoDto> Establecimientos
+    {
+        get => establecimientos ?? [];
+        init => establecimientos = value;
+    }
+}
 
 /// <summary>Espejo de ApiSiga.Contracts.Usuarios.CrearUsuarioDto.</summary>
 public sealed class CrearUsuarioDto

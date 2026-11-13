@@ -1,13 +1,17 @@
 @page "/eventos"
 @page "/eventos/{editId:guid}"
 @implements IDisposable
-@inject EventoService EventoService
-@inject FotografiaService FotografiaService
-@inject TipoEventoService TipoEventoService
-@inject CampanaService CampanaService
-@inject PotreroService PotreroService
+@inject IServicioEventos EventoService
+@inject IServicioFotografias FotografiaService
+@inject IServicioTiposEvento TipoEventoService
+@inject IServicioCampanas CampanaService
+@inject IContextoEmpresa Contexto
+@inject NotificadorDatos Notificador
 @inject IAuthService Auth
 @inject NavigationManager Navigation
+
+@using ObligatorioFrontEnd.Api.Contratos
+@using ObligatorioFrontEnd.Models
 
 <PageTitle>Eventos | SIGA</PageTitle>
 
@@ -30,83 +34,92 @@
     }
 
     <section class="card">
-            <h2>Registro de eventos</h2>
+        <h2>Registro de eventos</h2>
 
-            <div class="filter-row">
-                <div class="form-field compact-field">
-                    <label for="buscar-evento">Buscar</label>
-                    <input id="buscar-evento" @bind="search" @bind:event="oninput" placeholder="Descripción, ubicación o autor" />
-                </div>
-                <div class="form-field compact-field">
-                    <label for="filtro-tipo-evento">Tipo</label>
-                    <select id="filtro-tipo-evento" @bind="filterTipo">
-                        <option value="">Todos</option>
-                        @foreach (var tipo in TipoEventoService.GetAll())
-                        {
-                            <option value="@tipo.Id">@tipo.Nombre</option>
-                        }
-                    </select>
-                </div>
-                <div class="form-field compact-field">
-                    <label for="filtro-estado-evento">Estado</label>
-                    <select id="filtro-estado-evento" @bind="filterEstado">
-                        <option value="">Todos</option>
-                        <option value="@EventoEstado.Registrado">Registrado</option>
-                        <option value="@EventoEstado.Anulado">Anulado</option>
-                    </select>
+        <div class="filter-row">
+            <div class="form-field compact-field">
+                <label for="buscar-evento">Buscar</label>
+                <input id="buscar-evento" @bind="search" @bind:event="oninput" placeholder="Descripción, ubicación o autor" />
+            </div>
+            <div class="form-field compact-field">
+                <label for="filtro-tipo-evento">Tipo</label>
+                <select id="filtro-tipo-evento" @bind="filterTipo">
+                    <option value="">Todos</option>
+                    @foreach (var tipo in tiposEvento)
+                    {
+                        <option value="@tipo.Id">@tipo.Nombre</option>
+                    }
+                </select>
+            </div>
+            <div class="form-field compact-field">
+                <label for="filtro-estado-evento">Estado</label>
+                <select id="filtro-estado-evento" @bind="filterEstado">
+                    <option value="">Todos</option>
+                    <option value="@EstadoEvento.Registrado">Registrado</option>
+                    <option value="@EstadoEvento.Anulado">Anulado</option>
+                </select>
+            </div>
+        </div>
+
+        @if (cargando && eventos.Count == 0)
+        {
+            <p>Cargando...</p>
+        }
+        else if (!Filtered.Any())
+        {
+            <p class="muted">No hay eventos que coincidan con los filtros.</p>
+        }
+        else
+        {
+            <table class="table">
+                <thead>
+                    <tr><th>Fecha</th><th>Tipo</th><th>Campaña / potrero</th><th>Autor</th><th>Fotos</th><th>Estado</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var evento in Filtered)
+                    {
+                        <tr class="@(evento.Estado == EstadoEvento.Anulado ? "row-muted" : null)">
+                            <td>@evento.Fecha.ToString("dd/MM/yyyy")</td>
+                            <td>@(evento.TipoEventoNombre ?? "—")</td>
+                            <td>@ContextoTexto(evento.CampanaPotreroId)</td>
+                            <td>@(evento.RegistradoPor ?? "—")</td>
+                            <td>@evento.Fotografias.Count</td>
+                            <td>@evento.Estado</td>
+                            <td class="actions">
+                                <button @onclick="() => VerEvento(evento.Id)">Ver</button>
+                                @if (Auth.CanManage(SigaModule.Eventos) && evento.Estado == EstadoEvento.Registrado)
+                                {
+                                    <button @onclick="() => EditEvento(evento.Id)">Editar</button>
+                                    <button class="destructive" @onclick="() => BeginAnular(evento.Id)">Anular</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+
+        @if (anularId is Guid anularEventoId)
+        {
+            <div class="inline-confirm">
+                <p><strong>Anular evento</strong> — indicá el motivo. La información no se elimina.</p>
+                <input @bind="anularMotivo" placeholder="Motivo de anulación" />
+                <div class="form-actions">
+                    <button class="destructive" @onclick="() => ConfirmAnular(anularEventoId)">Confirmar anulación</button>
+                    <button @onclick="CancelAnular">Cancelar</button>
                 </div>
             </div>
-
-            @if (!Filtered.Any())
-            {
-                <p class="muted">No hay eventos que coincidan con los filtros.</p>
-            }
-            else
-            {
-                <table class="table">
-                    <thead>
-                        <tr><th>Fecha</th><th>Tipo</th><th>Campaña / potrero</th><th>Autor</th><th>Fotos</th><th>Estado</th><th></th></tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var evento in Filtered)
-                        {
-                            <tr class="@(evento.Estado == EventoEstado.Anulado ? "row-muted" : null)">
-                                <td>@evento.Fecha.ToString("dd/MM/yyyy")</td>
-                                <td>@(TipoEventoService.GetById(evento.TipoEventoId)?.Nombre ?? "—")</td>
-                                <td>@Contexto(evento.CampanaPotreroId)</td>
-                                <td>@(evento.RegistradoPor ?? evento.CreatedBy ?? "—")</td>
-                                <td>@FotografiaService.GetByEvento(evento.Id).Count</td>
-                                <td>@evento.Estado</td>
-                                <td class="actions">
-                                    <button @onclick="() => VerEvento(evento.Id)">Ver</button>
-                                    @if (Auth.CanManage(SigaModule.Eventos) && evento.Estado == EventoEstado.Registrado)
-                                    {
-                                        <button @onclick="() => EditEvento(evento.Id)">Editar</button>
-                                        <button class="destructive" @onclick="() => BeginAnular(evento.Id)">Anular</button>
-                                    }
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            }
-
-            @if (anularId is Guid anularEventoId)
-            {
-                <div class="inline-confirm">
-                    <p><strong>Anular evento</strong> — indicá el motivo. La información no se elimina.</p>
-                    <input @bind="anularMotivo" placeholder="Motivo de anulación" />
-                    <div class="form-actions">
-                        <button class="destructive" @onclick="() => ConfirmAnular(anularEventoId)">Confirmar anulación</button>
-                        <button @onclick="CancelAnular">Cancelar</button>
-                    </div>
-                </div>
-            }
+        }
     </section>
+
     @if (Auth.CanManage(SigaModule.Eventos))
     {
         <SidePanel IsOpen="formOpen" Title="@(editModel.Id == Guid.Empty ? "Registrar evento" : "Editar evento")" OnClose="Cancel">
-            <EventoForm Model="editModel" OnValidSubmit="Save" OnCancel="Cancel" />
+            <EventoForm Model="editModel"
+                        Campanas="campanas"
+                        TiposEvento="tiposEvento"
+                        OnValidSubmit="Save"
+                        OnCancel="Cancel" />
             @if (!string.IsNullOrWhiteSpace(formError))
             {
                 <p class="form-error" role="alert">@formError</p>
@@ -116,12 +129,11 @@
 
     @if (selectedEvento is not null)
     {
-        var fotos = FotografiaService.GetByEvento(selectedEvento.Id);
         <section class="card">
             <div class="card-header">
                 <div>
                     <h2>@selectedEvento.Descripcion</h2>
-                    <p class="muted">@selectedEvento.Fecha.ToString("dd/MM/yyyy") · @Contexto(selectedEvento.CampanaPotreroId) · @selectedEvento.Estado</p>
+                    <p class="muted">@selectedEvento.Fecha.ToString("dd/MM/yyyy") · @ContextoTexto(selectedEvento.CampanaPotreroId) · @selectedEvento.Estado</p>
                     @if (!string.IsNullOrWhiteSpace(selectedEvento.Ubicacion))
                     {
                         <p class="muted">Ubicación: @selectedEvento.Ubicacion</p>
@@ -134,17 +146,17 @@
                 <button @onclick="() => selectedEvento = null">Cerrar</button>
             </div>
 
-            @if (fotos.Count == 0)
+            @if (selectedEvento.Fotografias.Count == 0)
             {
                 <p class="muted">Este evento no tiene fotografías.</p>
             }
             else
             {
                 <div class="photo-grid">
-                    @foreach (var foto in fotos)
+                    @foreach (var foto in selectedEvento.Fotografias)
                     {
                         <figure class="photo-card @(foto.Visible ? null : "photo-hidden")">
-                            @if (foto.Visible && FotografiaService.GetUrl(foto) is string url)
+                            @if (foto.Visible && fotoUrls.GetValueOrDefault(foto.Id) is string url)
                             {
                                 <img src="@url" alt="@foto.NombreArchivo" loading="lazy" />
                             }
@@ -161,7 +173,7 @@
                                 }
                                 else if (CanHidePhoto)
                                 {
-                                    <button class="link-button destructive" @onclick="() => BeginOcultar(foto.Id)">Ocultar</button>
+                                    <button class="link-button destructive" @onclick="() => BeginOcultar(foto)">Ocultar</button>
                                 }
                             </figcaption>
                         </figure>
@@ -193,7 +205,7 @@
                     <label for="bulk-tipo">Tipo de evento</label>
                     <select id="bulk-tipo" @bind="bulkTipoEventoId">
                         <option value="@Guid.Empty">Seleccioná un tipo...</option>
-                        @foreach (var tipo in TipoEventoService.GetAll())
+                        @foreach (var tipo in tiposEvento)
                         {
                             <option value="@tipo.Id">@tipo.Nombre</option>
                         }
@@ -215,14 +227,17 @@
             <div class="form-field">
                 <label>Campañas y potreros</label>
                 <div class="checkbox-grid">
-                    @foreach (var item in CampanaService.GetCampanaPotreros().Where(item => item.Campana.Estado is CampanaEstado.Planificada or CampanaEstado.Activa && item.Assignment.Estado is CampanaEstado.Planificada or CampanaEstado.Activa))
+                    @foreach (var campana in campanas.Where(item => item.Estado is EstadoCampana.Planificada or EstadoCampana.Activa))
                     {
-                        <label class="checkbox-item">
-                            <input type="checkbox"
-                                   checked="@bulkSeleccion.Contains(item.Assignment.Id)"
-                                   @onchange="eventArgs => ToggleBulk(item.Assignment.Id, eventArgs)" />
-                            <span>@item.Campana.Nombre · @PotreroNombre(item.Assignment.PotreroId)</span>
-                        </label>
+                        @foreach (var potrero in campana.Potreros)
+                        {
+                            <label class="checkbox-item">
+                                <input type="checkbox"
+                                       checked="@bulkSeleccion.Contains(potrero.Id)"
+                                       @onchange="eventArgs => ToggleBulk(potrero.Id, eventArgs)" />
+                                <span>@campana.Nombre · @potrero.PotreroNombre</span>
+                            </label>
+                        }
                     }
                 </div>
             </div>
@@ -238,12 +253,15 @@
 </RoleGuard>
 
 @code {
-    private IReadOnlyList<Evento> eventos = [];
-    private EventoEditModel editModel = new();
-    private Evento? selectedEvento;
+    private IReadOnlyList<EventoDto> eventos = [];
+    private IReadOnlyList<TipoEventoDto> tiposEvento = [];
+    private IReadOnlyList<CampanaDto> campanas = [];
+    private EventoFormModel editModel = NewModel();
+    private EventoDto? selectedEvento;
     private string? formError;
     private string? pageError;
     private bool formOpen;
+    private bool cargando;
     private string search = string.Empty;
     private string filterTipo = string.Empty;
     private string filterEstado = string.Empty;
@@ -252,7 +270,9 @@
     private string anularMotivo = string.Empty;
 
     private Guid? ocultarId;
+    private long ocultarVersion;
     private string ocultarMotivo = string.Empty;
+    private readonly Dictionary<Guid, string?> fotoUrls = [];
 
     private Guid bulkTipoEventoId = Guid.Empty;
     private DateTime bulkFecha = SigaTime.TodayLocal;
@@ -265,9 +285,9 @@
 
     private bool CanHidePhoto => Auth.CurrentUser is { Role: var role } && Permissions.CanHidePhoto(role);
 
-    private IEnumerable<Evento> Filtered => eventos.Where(evento =>
+    private IEnumerable<EventoDto> Filtered => eventos.Where(evento =>
         (string.IsNullOrWhiteSpace(search) ||
-         evento.Descripcion.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+         (evento.Descripcion?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false) ||
          (evento.Ubicacion?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false) ||
          (evento.RegistradoPor?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false)) &&
         (string.IsNullOrWhiteSpace(filterTipo) || evento.TipoEventoId.ToString() == filterTipo) &&
@@ -275,41 +295,79 @@
 
     protected override void OnInitialized()
     {
-        EventoService.StateChanged += Load;
-        FotografiaService.StateChanged += Load;
-        Load();
+        Notificador.Cambio += HandleChanged;
     }
 
-    protected override void OnParametersSet()
+    protected override async Task OnParametersSetAsync()
     {
-        formOpen = editId is not null;
-        var evento = editId is null ? null : EventoService.GetById(editId.Value);
-        editModel = evento is null
-            ? NewModel()
-            : new EventoEditModel
-            {
-                Id = evento.Id,
-                CampanaPotreroId = evento.CampanaPotreroId,
-                TipoEventoId = evento.TipoEventoId,
-                Fecha = evento.Fecha,
-                Descripcion = evento.Descripcion,
-                Ubicacion = evento.Ubicacion,
-                Latitud = evento.Latitud,
-                Longitud = evento.Longitud,
-                Version = evento.Version
-            };
-        formError = null;
-    }
+        await LoadAsync();
 
-    private void Load()
-    {
-        eventos = EventoService.GetAll();
-        if (selectedEvento is not null)
+        if (editId is Guid id)
         {
-            selectedEvento = EventoService.GetById(selectedEvento.Id);
+            var evento = eventos.FirstOrDefault(candidato => candidato.Id == id);
+
+            editModel = evento is null
+                ? NewModel()
+                : new EventoFormModel
+                {
+                    Id = evento.Id,
+                    CampanaPotreroId = evento.CampanaPotreroId,
+                    TipoEventoId = evento.TipoEventoId,
+                    Fecha = evento.Fecha,
+                    Descripcion = evento.Descripcion ?? string.Empty,
+                    Ubicacion = evento.Ubicacion,
+                    Latitud = evento.Latitud,
+                    Longitud = evento.Longitud,
+                    Version = evento.Version
+                };
+
+            formOpen = true;
+            formError = null;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        cargando = true;
+
+        try
+        {
+            eventos = await EventoService.GetAllAsync(incluirAnulados: true);
+            tiposEvento = await TipoEventoService.GetAllAsync(incluirInactivos: true);
+            campanas = await CampanaService.GetAllAsync(incluirAnuladas: false);
+
+            if (selectedEvento is not null)
+            {
+                selectedEvento = eventos.FirstOrDefault(evento => evento.Id == selectedEvento.Id);
+                await CargarUrlsFotosAsync(selectedEvento);
+            }
+        }
+        catch (InvalidOperationException exception)
+        {
+            pageError = exception.Message;
+        }
+        finally
+        {
+            cargando = false;
+        }
+    }
+
+    private void HandleChanged(string modulo)
+    {
+        if (modulo != ModulosDatos.Eventos &&
+            modulo != ModulosDatos.Fotos &&
+            modulo != ModulosDatos.TiposEvento &&
+            modulo != ModulosDatos.Campanas &&
+            modulo != ModulosDatos.EmpresaActiva)
+        {
+            return;
         }
 
-        InvokeAsync(StateHasChanged);
+        _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        });
     }
 
     private void NewEvento()
@@ -319,8 +377,31 @@
         formOpen = true;
         Navigation.NavigateTo("/eventos", replace: true);
     }
+
     private void EditEvento(Guid id) => Navigation.NavigateTo($"/eventos/{id}");
-    private void VerEvento(Guid id) => selectedEvento = EventoService.GetById(id);
+
+    private async Task VerEvento(Guid id)
+    {
+        selectedEvento = await EventoService.GetByIdAsync(id);
+        ocultarId = null;
+        await CargarUrlsFotosAsync(selectedEvento);
+    }
+
+    private async Task CargarUrlsFotosAsync(EventoDto? evento)
+    {
+        fotoUrls.Clear();
+
+        if (evento is null)
+        {
+            return;
+        }
+
+        foreach (var foto in evento.Fotografias)
+        {
+            fotoUrls[foto.Id] = await FotografiaService.ObtenerDataUrlAsync(foto);
+        }
+    }
+
     private void Cancel()
     {
         formOpen = false;
@@ -329,34 +410,55 @@
         Navigation.NavigateTo("/eventos", replace: true);
     }
 
-    private void Save(EventoEditModel model)
+    private async Task Save(EventoFormModel model)
     {
+        formError = null;
+
         try
         {
-            var assignment = CampanaService.GetCampanaPotreroById(model.CampanaPotreroId)
-                ?? throw new InvalidOperationException("Debe seleccionar una campaña y potrero.");
-            var draft = new Evento
-            {
-                Id = model.Id,
-                EmpresaId = assignment.Campana.EmpresaId,
-                CampanaPotreroId = model.CampanaPotreroId,
-                TipoEventoId = model.TipoEventoId,
-                Fecha = model.Fecha.Date,
-                Descripcion = model.Descripcion.Trim(),
-                Ubicacion = model.Ubicacion?.Trim(),
-                Latitud = model.Latitud,
-                Longitud = model.Longitud
-            };
-
             if (model.Id == Guid.Empty)
             {
-                EventoService.Create(draft, model.Fotos);
+                var creado = await EventoService.CreateAsync(new CrearEventoDto
+                {
+                    EmpresaId = Contexto.EmpresaActivaId,
+                    CampanaPotreroId = model.CampanaPotreroId,
+                    TipoEventoId = model.TipoEventoId,
+                    Fecha = model.Fecha.Date,
+                    Descripcion = model.Descripcion.Trim(),
+                    Ubicacion = model.Ubicacion?.Trim(),
+                    Latitud = model.Latitud,
+                    Longitud = model.Longitud
+                });
+
+                if (model.Fotos.Count > 0)
+                {
+                    await FotografiaService.SubirAsync(
+                        creado.Id, model.Fotos, model.Latitud, model.Longitud);
+                }
             }
             else
             {
-                if (!EventoService.Update(draft, model.Version, model.Fotos))
+                var actualizado = await EventoService.UpdateAsync(new ActualizarEventoDto
+                {
+                    Id = model.Id,
+                    TipoEventoId = model.TipoEventoId,
+                    Fecha = model.Fecha.Date,
+                    Descripcion = model.Descripcion.Trim(),
+                    Ubicacion = model.Ubicacion?.Trim(),
+                    Latitud = model.Latitud,
+                    Longitud = model.Longitud,
+                    Version = model.Version
+                });
+
+                if (actualizado is null)
                 {
                     throw new InvalidOperationException("No se encontró el evento.");
+                }
+
+                if (model.Fotos.Count > 0)
+                {
+                    await FotografiaService.SubirAsync(
+                        actualizado.Id, model.Fotos, model.Latitud, model.Longitud);
                 }
             }
 
@@ -381,11 +483,14 @@
         anularMotivo = string.Empty;
     }
 
-    private void ConfirmAnular(Guid id)
+    private async Task ConfirmAnular(Guid id)
     {
+        pageError = null;
+
         try
         {
-            EventoService.Anular(id, anularMotivo);
+            await EventoService.AnularAsync(id, anularMotivo);
+            selectedEvento = null;
             CancelAnular();
         }
         catch (InvalidOperationException exception)
@@ -394,9 +499,10 @@
         }
     }
 
-    private void BeginOcultar(Guid id)
+    private void BeginOcultar(FotografiaDto foto)
     {
-        ocultarId = id;
+        ocultarId = foto.Id;
+        ocultarVersion = foto.Version;
         ocultarMotivo = string.Empty;
     }
 
@@ -406,11 +512,23 @@
         ocultarMotivo = string.Empty;
     }
 
-    private void ConfirmOcultar(Guid id)
+    private async Task ConfirmOcultar(Guid fotoId)
     {
+        pageError = null;
+
         try
         {
-            FotografiaService.Ocultar(id, ocultarMotivo);
+            if (selectedEvento is null)
+            {
+                return;
+            }
+
+            await FotografiaService.OcultarAsync(
+                selectedEvento.Id, fotoId, ocultarMotivo, ocultarVersion);
+
+            selectedEvento = await EventoService.GetByIdAsync(selectedEvento.Id);
+            await CargarUrlsFotosAsync(selectedEvento);
+
             CancelOcultar();
         }
         catch (InvalidOperationException exception)
@@ -431,19 +549,31 @@
         }
     }
 
-    private void SaveBulk()
+    private async Task SaveBulk()
     {
         bulkError = null;
+
         try
         {
-            EventoService.CreateForPotreros(
-                bulkSeleccion,
-                bulkTipoEventoId,
-                bulkFecha,
-                bulkDescripcion,
-                bulkUbicacion,
-                null,
-                null);
+            if (bulkTipoEventoId == Guid.Empty)
+            {
+                throw new InvalidOperationException("Seleccioná un tipo de evento.");
+            }
+
+            if (bulkSeleccion.Count == 0)
+            {
+                throw new InvalidOperationException("Seleccioná al menos un potrero.");
+            }
+
+            await EventoService.CreateForPotrerosAsync(new CrearEventosLoteDto
+            {
+                EmpresaId = Contexto.EmpresaActivaId,
+                CampanaPotreroIds = bulkSeleccion.ToList(),
+                TipoEventoId = bulkTipoEventoId,
+                Fecha = bulkFecha.Date,
+                Descripcion = bulkDescripcion.Trim(),
+                Ubicacion = bulkUbicacion?.Trim()
+            });
 
             bulkSeleccion.Clear();
             bulkDescripcion = string.Empty;
@@ -457,19 +587,21 @@
         }
     }
 
-    private static EventoEditModel NewModel() => new() { Fecha = SigaTime.TodayLocal };
+    private static EventoFormModel NewModel() => new() { Fecha = SigaTime.TodayLocal };
 
-    private string Contexto(Guid id)
+    private string ContextoTexto(Guid id)
     {
-        var item = CampanaService.GetCampanaPotreroById(id);
-        return item is null ? "—" : $"{item.Value.Campana.Nombre} · {PotreroService.GetById(item.Value.Assignment.PotreroId)?.Nombre}";
+        foreach (var campana in campanas)
+        {
+            var potrero = campana.Potreros.FirstOrDefault(item => item.Id == id);
+            if (potrero is not null)
+            {
+                return $"{campana.Nombre} · {potrero.PotreroNombre}";
+            }
+        }
+
+        return "—";
     }
 
-    private string PotreroNombre(Guid id) => PotreroService.GetById(id)?.Nombre ?? "Potrero no disponible";
-
-    public void Dispose()
-    {
-        EventoService.StateChanged -= Load;
-        FotografiaService.StateChanged -= Load;
-    }
+    public void Dispose() => Notificador.Cambio -= HandleChanged;
 }
