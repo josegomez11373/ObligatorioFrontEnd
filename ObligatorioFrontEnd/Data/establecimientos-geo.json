@@ -1,0 +1,14 @@
+[
+  {
+    "establecimientoId": "33333333-3333-3333-3333-333333333333",
+    "latitud": -34.37,
+    "longitud": -55.24,
+    "actualizadaUtc": "2026-11-16T00:00:00Z"
+  },
+  {
+    "establecimientoId": "44444444-4444-4444-4444-444444444444",
+    "latitud": -33.6,
+    "longitud": -56.45,
+    "actualizadaUtc": "2026-11-16T00:00:00Z"
+  }
+]

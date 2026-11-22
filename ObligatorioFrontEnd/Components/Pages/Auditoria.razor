@@ -1,8 +1,9 @@
 @page "/auditoria"
-@implements IDisposable
+@implements IAsyncDisposable
 @inject IServicioAuditoria AuditService
 @inject IServicioEmpresas EmpresaService
 @inject NotificadorDatos Notificador
+@inject IJSRuntime JS
 
 @using ObligatorioFrontEnd.Api.Contratos
 
@@ -80,7 +81,7 @@
         <p class="form-error" role="alert">@error</p>
     }
 
-    <section class="card">
+    <section class="card audit-results" id="auditoria-registros">
         <div class="card-header">
             <h2>Registros (@total)</h2>
             <span class="muted">Actualizado: @SigaTime.Format(SigaTime.UtcNow)</span>
@@ -96,37 +97,44 @@
         }
         else
         {
-            <table class="table">
-                <thead>
-                    <tr><th>Fecha</th><th>Actor</th><th>Entidad</th><th>Acción</th><th>Empresa</th><th>Detalle</th></tr>
-                </thead>
-                <tbody>
-                    @foreach (var entry in entries)
-                    {
-                        <tr>
-                            <td>@SigaTime.Format(entry.FechaHoraUtc)</td>
-                            <td>@(entry.Actor ?? "—")</td>
-                            <td>@entry.Entidad</td>
-                            <td>@entry.Accion</td>
-                            <td>@EmpresaTexto(entry)</td>
-                            <td>
-                                @if (!string.IsNullOrWhiteSpace(entry.DatosAnteriores) ||
-                                     !string.IsNullOrWhiteSpace(entry.DatosNuevos))
-                                {
-                                    <details>
-                                        <summary>Ver</summary>
-                                        <pre class="audit-detail">@Detalle(entry)</pre>
-                                    </details>
-                                }
-                                else
-                                {
-                                    <span class="muted">—</span>
-                                }
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
+            <div class="table-wrap">
+                <table class="table audit-table">
+                    <colgroup>
+                        <col style="width:14%" />
+                        <col style="width:19%" />
+                        <col style="width:17%" />
+                        <col style="width:10%" />
+                        <col style="width:14%" />
+                        <col style="width:26%" />
+                    </colgroup>
+                    <thead>
+                        <tr><th>Fecha</th><th>Actor</th><th>Entidad</th><th>Acción</th><th>Empresa</th><th>Detalle</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var entry in entries)
+                        {
+                            <tr>
+                                <td>@SigaTime.Format(entry.FechaHoraUtc)</td>
+                                <td>@(entry.Actor ?? "—")</td>
+                                <td>@entry.Entidad</td>
+                                <td>@entry.Accion</td>
+                                <td>@EmpresaTexto(entry)</td>
+                                <td>
+                                    @if (!string.IsNullOrWhiteSpace(entry.DatosAnteriores) ||
+                                         !string.IsNullOrWhiteSpace(entry.DatosNuevos))
+                                    {
+                                        <button type="button" class="audit-view-button" @onclick="() => AbrirDetalle(entry)">Ver cambios</button>
+                                    }
+                                    else
+                                    {
+                                        <span class="muted">—</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
 
             <div class="form-actions pagination">
                 <button type="button" disabled="@(pagina <= 1 || cargando)" @onclick="() => IrPaginaAsync(pagina - 1)">
@@ -141,6 +149,42 @@
             </div>
         }
     </section>
+
+    @if (detalleSeleccionado is { } detalle)
+    {
+        var cambios = Cambios(detalle);
+        <div class="audit-modal-backdrop" @onclick="CerrarDetalle">
+            <section class="audit-modal" role="dialog" aria-modal="true" aria-labelledby="audit-modal-title" @onclick:stopPropagation="true">
+                <header class="audit-modal__header">
+                    <div>
+                        <p class="eyebrow">@detalle.Entidad · @detalle.Accion</p>
+                        <h2 id="audit-modal-title">Detalle del cambio</h2>
+                        <p class="muted">@SigaTime.Format(detalle.FechaHoraUtc) · @(detalle.Actor ?? "Usuario no identificado")</p>
+                    </div>
+                    <button type="button" class="icon-button" @onclick="CerrarDetalle" aria-label="Cerrar detalle">×</button>
+                </header>
+                @if (cambios.Count > 0)
+                {
+                    <div class="audit-changes-wrap audit-changes-wrap--modal">
+                        <table class="audit-changes">
+                            <thead><tr><th>Campo</th><th>Antes</th><th>Después</th></tr></thead>
+                            <tbody>
+                                @foreach (var cambio in cambios)
+                                {
+                                    <tr><td>@cambio.Campo</td><td>@(cambio.Anterior ?? "—")</td><td>@(cambio.Nuevo ?? "—")</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <p class="muted audit-no-changes">No hay cambios de negocio para mostrar.</p>
+                }
+                <footer class="audit-modal__footer"><button type="button" class="primary-button primary-button--inline" @onclick="CerrarDetalle">Cerrar</button></footer>
+            </section>
+        </div>
+    }
 </RoleGuard>
 
 @code {
@@ -159,6 +203,8 @@
     private bool cargando;
     private int pagina = 1;
     private int total;
+    private IJSObjectReference? moduloUi;
+    private AuditoriaDto? detalleSeleccionado;
 
     private int TotalPaginas => total <= 0
         ? 1
@@ -178,8 +224,23 @@
         try
         {
             empresas = await EmpresaService.GetAllAsync(includeInactive: true);
-            entidades = await AuditService.GetEntidadesAsync();
-            actores = await AuditService.GetActoresAsync();
+            var todo = await AuditService.BuscarTodoAsync();
+
+            entidades = todo
+                .Select(registro => registro.Entidad)
+                .Where(entidad => !string.IsNullOrWhiteSpace(entidad))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(entidad => entidad)
+                .ToList();
+
+            actores = todo
+                .Select(registro => registro.Actor)
+                .Where(actor => !string.IsNullOrWhiteSpace(actor))
+                .Select(actor => actor!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(actor => actor)
+                .ToList();
+
             await CargarPaginaAsync();
         }
         catch (InvalidOperationException exception)
@@ -243,6 +304,10 @@
         {
             pagina = nuevaPagina;
             await CargarPaginaAsync();
+
+            // Al cambiar de página, la lista puede encogerse y dejar la vista a
+            // mitad de la tabla. Volvemos al encabezado de los registros.
+            await DesplazarARegistrosAsync();
         }
         catch (InvalidOperationException exception)
         {
@@ -278,27 +343,138 @@
         await Buscar();
     }
 
+    private void AbrirDetalle(AuditoriaDto entry) => detalleSeleccionado = entry;
+
+    private void CerrarDetalle() => detalleSeleccionado = null;
+
     private string EmpresaTexto(AuditoriaDto entry) =>
         entry.EmpresaId is Guid empresaId
             ? empresas.FirstOrDefault(empresa => empresa.Id == empresaId)?.Nombre ?? "—"
             : "—";
 
-    private static string Detalle(AuditoriaDto entry)
+    private static readonly HashSet<string> CamposTecnicos = new(StringComparer.OrdinalIgnoreCase)
     {
-        var parts = new List<string>();
+        "id", "empresaId", "version", "createdAt", "createdBy", "updatedAt", "updatedBy",
+        "fechaCreacion", "usuarioCreacion", "fechaModificacion", "usuarioModificacion",
+        "contrasena", "password", "passwordHash", "token"
+    };
 
-        if (!string.IsNullOrWhiteSpace(entry.DatosAnteriores))
-        {
-            parts.Add($"Antes: {entry.DatosAnteriores}");
-        }
+    private static readonly Dictionary<string, string> NombresCampos = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["nombre"] = "Nombre", ["descripcion"] = "Descripción", ["activo"] = "Activo",
+        ["estado"] = "Estado", ["fechaInicio"] = "Fecha de inicio", ["fechaFin"] = "Fecha de fin",
+        ["fecha"] = "Fecha", ["ubicacion"] = "Ubicación", ["latitud"] = "Latitud",
+        ["longitud"] = "Longitud", ["superficieHa"] = "Superficie (ha)",
+        ["responsables"] = "Responsables", ["limites"] = "Límites", ["cultivoId"] = "Cultivo",
+        ["tipoEventoId"] = "Tipo de evento", ["tipoTareaId"] = "Tipo de tarea",
+        ["fechaPlanificada"] = "Fecha planificada", ["fechaRealizacion"] = "Fecha de realización",
+        ["resultado"] = "Resultado", ["solucionoProblema"] = "Solucionó el problema",
+        ["fechaComprobacion"] = "Fecha de comprobación", ["costo"] = "Costo",
+        ["email"] = "Email", ["rol"] = "Rol", ["razonSocial"] = "Razón social"
+    };
 
-        if (!string.IsNullOrWhiteSpace(entry.DatosNuevos))
-        {
-            parts.Add($"Después: {entry.DatosNuevos}");
-        }
+    private static IReadOnlyList<CambioAuditoria> Cambios(AuditoriaDto entry)
+    {
+        var antes = LeerObjeto(entry.DatosAnteriores);
+        var despues = LeerObjeto(entry.DatosNuevos);
 
-        return string.Join(Environment.NewLine, parts);
+        return antes.Keys
+            .Union(despues.Keys, StringComparer.OrdinalIgnoreCase)
+            .Where(campo => !CamposTecnicos.Contains(campo))
+            .Select(campo => new CambioAuditoria(
+                NombresCampos.GetValueOrDefault(campo, SepararPascalCase(campo)),
+                antes.GetValueOrDefault(campo),
+                despues.GetValueOrDefault(campo)))
+            .Where(cambio => !string.Equals(cambio.Anterior, cambio.Nuevo, StringComparison.Ordinal))
+            .OrderBy(cambio => cambio.Campo)
+            .ToList();
     }
 
-    public void Dispose() => Notificador.Cambio -= HandleChanged;
+    private static Dictionary<string, string?> LeerObjeto(string? json)
+    {
+        var resultado = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(json)) return resultado;
+
+        try
+        {
+            using var documento = System.Text.Json.JsonDocument.Parse(json);
+            if (documento.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object) return resultado;
+
+            foreach (var propiedad in documento.RootElement.EnumerateObject())
+            {
+                resultado[propiedad.Name] = ValorLegible(propiedad.Value);
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            // La API anterior podría contener una cadena no JSON. No se expone cruda.
+        }
+
+        return resultado;
+    }
+
+    private static string? ValorLegible(System.Text.Json.JsonElement valor) => valor.ValueKind switch
+    {
+        System.Text.Json.JsonValueKind.Null => null,
+        System.Text.Json.JsonValueKind.String => FormatearTexto(valor.GetString()),
+        System.Text.Json.JsonValueKind.True => "Sí",
+        System.Text.Json.JsonValueKind.False => "No",
+        System.Text.Json.JsonValueKind.Array => $"{valor.GetArrayLength()} elemento(s)",
+        System.Text.Json.JsonValueKind.Object => "Datos relacionados",
+        _ => valor.ToString()
+    };
+
+    /// <summary>
+    /// Los JSON de auditoría guardan las fechas en ISO 8601 UTC. En la tabla de
+    /// cambios se muestran en hora de Uruguay para que sean legibles.
+    /// </summary>
+    private static string? FormatearTexto(string? texto)
+    {
+        if (string.IsNullOrWhiteSpace(texto) || !texto.Contains('T'))
+        {
+            return texto;
+        }
+
+        return DateTimeOffset.TryParse(
+            texto,
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.RoundtripKind,
+            out var fecha)
+            ? SigaTime.Format(fecha.UtcDateTime)
+            : texto;
+    }
+
+    private static string SepararPascalCase(string texto) =>
+        System.Text.RegularExpressions.Regex.Replace(texto, "([a-z])([A-Z])", "$1 $2");
+
+    private sealed record CambioAuditoria(string Campo, string? Anterior, string? Nuevo);
+
+    private async Task DesplazarARegistrosAsync()
+    {
+        try
+        {
+            moduloUi ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/ui.js");
+            await moduloUi.InvokeVoidAsync("scrollToId", "auditoria-registros");
+        }
+        catch (JSDisconnectedException)
+        {
+            // El circuito se cerró mientras se paginaba.
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Notificador.Cambio -= HandleChanged;
+
+        if (moduloUi is not null)
+        {
+            try
+            {
+                await moduloUi.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+        }
+    }
 }

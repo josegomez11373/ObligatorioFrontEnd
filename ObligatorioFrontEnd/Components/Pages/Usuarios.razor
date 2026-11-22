@@ -47,35 +47,37 @@
         }
         else
         {
-            <table class="table">
-                <thead>
-                    <tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Empresa</th><th>Establecimientos</th><th>Estado</th><th>Creado</th><th></th></tr>
-                </thead>
-                <tbody>
-                    @foreach (var user in users)
-                    {
-                        <tr class="@(user.Activo ? null : "row-muted")">
-                            <td>@user.Nombre</td>
-                            <td>@user.Email</td>
-                            <td>@user.Rol.DisplayName()</td>
-                            <td>@EmpresaNombre(user)</td>
-                            <td>@EstablecimientosTexto(user)</td>
-                            <td>@(user.Activo ? "Activo" : "Desactivado")</td>
-                            <td>@SigaTime.Format(user.FechaCreacion)</td>
-                            <td class="actions">
-                                @if (CanEdit(user))
-                                {
-                                    <button type="button" @onclick="() => Edit(user)">Editar</button>
-                                    @if (user.Activo && user.Id != Auth.CurrentUser?.Id)
+            <div class="table-wrap">
+                <table class="table">
+                    <thead>
+                        <tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Empresa</th><th>Establecimientos</th><th>Estado</th><th>Creado</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var user in users)
+                        {
+                            <tr class="@(user.Activo ? null : "row-muted")">
+                                <td>@user.Nombre</td>
+                                <td>@user.Email</td>
+                                <td>@user.Rol.DisplayName()</td>
+                                <td>@EmpresaNombre(user)</td>
+                                <td>@EstablecimientosTexto(user)</td>
+                                <td>@(user.Activo ? "Activo" : "Desactivado")</td>
+                                <td>@SigaTime.Format(user.FechaCreacion)</td>
+                                <td class="actions">
+                                    @if (CanEdit(user))
                                     {
-                                        <button type="button" class="destructive" @onclick="() => Deactivate(user.Id)">Desactivar</button>
+                                        <button type="button" @onclick="() => Edit(user)">Editar</button>
+                                        @if (user.Activo && user.Id != Auth.CurrentUser?.Id)
+                                        {
+                                            <button type="button" class="destructive" @onclick="() => Deactivate(user.Id)">Desactivar</button>
+                                        }
                                     }
-                                }
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
         }
     </section>
     @if (CanManage)

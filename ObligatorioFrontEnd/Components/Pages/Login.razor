@@ -41,14 +41,12 @@
                     @(submitting ? "Ingresando..." : "Ingresar a SIGA") <span>→</span>
                 </button>
             </EditForm>
-
-            <p class="demo-hint">Contraseña del ambiente de demostración: <code>siga2026</code></p>
         </div>
     </section>
 </main>
 
 @code {
-    private readonly LoginForm form = new() { Email = "admin@siga.demo" };
+    private readonly LoginForm form = new();
     private string? error;
     private bool submitting;
 

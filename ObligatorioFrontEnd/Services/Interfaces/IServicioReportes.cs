@@ -10,5 +10,6 @@ public interface IServicioReportes
     /// </summary>
     Task<ReportDashboard> BuildAsync(
         ReportFilter filtro,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        int? limiteAuditoria = null);
 }

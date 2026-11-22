@@ -9,7 +9,7 @@
 
 <PageTitle>Maquinaria | SIGA</PageTitle>
 
-<RoleGuard Module="SigaModule.Catalogos">
+<RoleGuard Module="SigaModule.Maquinaria">
     <section class="page-header">
         <div>
             <p class="eyebrow">Catálogos</p>
@@ -43,33 +43,35 @@
         }
         else
         {
-            <table class="table">
-                <thead>
-                    <tr><th>Nombre</th><th>Identificación</th><th>Empresa</th><th>Costo por hora</th><th>Estado</th><th></th></tr>
-                </thead>
-                <tbody>
-                    @foreach (var item in items)
-                    {
-                        <tr class="@(item.Activo ? null : "row-muted")">
-                            <td>@item.Nombre</td>
-                            <td>@(item.Identificacion ?? "—")</td>
-                            <td>@(Contexto.EmpresaActiva?.Nombre ?? "—")</td>
-                            <td>@(item.CostoHora?.ToString("C") ?? "—")</td>
-                            <td>@(item.Activo ? "Activo" : "Desactivado")</td>
-                            <td class="actions">
-                                @if (CanManage)
-                                {
-                                    <button type="button" @onclick="() => Edit(item)">Editar</button>
-                                    @if (item.Activo)
+            <div class="table-wrap">
+                <table class="table">
+                    <thead>
+                        <tr><th>Nombre</th><th>Identificación</th><th>Empresa</th><th>Costo por hora</th><th>Estado</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in items)
+                        {
+                            <tr class="@(item.Activo ? null : "row-muted")">
+                                <td>@item.Nombre</td>
+                                <td>@(item.Identificacion ?? "—")</td>
+                                <td>@(Contexto.EmpresaActiva?.Nombre ?? "—")</td>
+                                <td class="nowrap">@(item.CostoHora?.ToString("C") ?? "-")</td>
+                                <td>@(item.Activo ? "Activo" : "Desactivado")</td>
+                                <td class="actions">
+                                    @if (CanManage)
                                     {
-                                        <button type="button" class="destructive" @onclick="() => Deactivate(item.Id)">Desactivar</button>
+                                        <button type="button" @onclick="() => Edit(item)">Editar</button>
+                                        @if (item.Activo)
+                                        {
+                                            <button type="button" class="destructive" @onclick="() => Deactivate(item.Id)">Desactivar</button>
+                                        }
                                     }
-                                }
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
         }
     </section>
     @if (CanManage)
@@ -114,7 +116,7 @@
     private string? error;
     private bool cargando;
 
-    private bool CanManage => Auth.CanManage(SigaModule.Catalogos);
+    private bool CanManage => Auth.CanManage(SigaModule.Maquinaria);
 
     protected override async Task OnInitializedAsync()
     {
@@ -124,6 +126,11 @@
 
     private async Task LoadAsync()
     {
+        if (!Auth.CanView(SigaModule.Maquinaria))
+        {
+            return;
+        }
+
         cargando = true;
 
         try

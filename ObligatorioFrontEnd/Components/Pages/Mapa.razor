@@ -1,0 +1,871 @@
+@page "/mapa"
+@implements IAsyncDisposable
+@inject IServicioEstablecimientos EstablecimientoService
+@inject IServicioPotreros PotreroService
+@inject IServicioCampanas CampanaService
+@inject IServicioEventos EventoService
+@inject IServicioTiposEvento TipoEventoService
+@inject IServicioGeoEstablecimientos GeoService
+@inject IContextoEmpresa Contexto
+@inject NotificadorDatos Notificador
+@inject IAuthService Auth
+@inject IJSRuntime JS
+@inject IConfiguration Config
+@inject ILogger<Mapa> Logger
+
+@using System.Globalization
+@using System.Text.Json
+@using ObligatorioFrontEnd.Api.Contratos
+@using ObligatorioFrontEnd.Models.Geo
+
+<PageTitle>Mapa | SIGA</PageTitle>
+
+<HeadContent>
+    <link rel="stylesheet" href="lib/leaflet/leaflet.css" />
+</HeadContent>
+
+<RoleGuard Module="SigaModule.Establecimientos">
+    <section class="page-header">
+        <div>
+            <p class="eyebrow">Georreferencia</p>
+            <h1>Mapa</h1>
+            <p class="page-intro">
+                Ubicación de los establecimientos de la empresa activa y de sus eventos geolocalizados.
+            </p>
+        </div>
+        <button class="primary-button primary-button--inline" type="button" @onclick="CargarAsync" disabled="@cargando">
+            Actualizar
+        </button>
+    </section>
+
+    @if (!string.IsNullOrWhiteSpace(error))
+    {
+        <p class="form-error" role="alert">@error</p>
+    }
+
+    @if (avisoTiles)
+    {
+        <p class="mapa-aviso">
+            No se pudieron cargar las imágenes del mapa. Revisá la conexión a internet:
+            los pines y el listado siguen funcionando.
+        </p>
+    }
+
+    <div class="mapa-layout">
+        <section class="card mapa-card">
+            <h2>Mapa de la empresa</h2>
+            <div class="mapa-filtros">
+                <div class="form-field compact-field">
+                    <label for="mapa-tipo">Tipo de evento</label>
+                    <select id="mapa-tipo" @bind="tipoEventoFiltro" @bind:after="RedibujarAsync">
+                        <option value="">Todos</option>
+                        @foreach (var tipo in tiposEvento)
+                        {
+                            <option value="@tipo.Id">@tipo.Nombre</option>
+                        }
+                    </select>
+                </div>
+                <div class="form-field compact-field">
+                    <label for="mapa-desde">Desde</label>
+                    <input id="mapa-desde" type="date" @bind="desdeFiltro" @bind:after="RedibujarAsync" />
+                </div>
+                <div class="form-field compact-field">
+                    <label for="mapa-hasta">Hasta</label>
+                    <input id="mapa-hasta" type="date" @bind="hastaFiltro" @bind:after="RedibujarAsync" />
+                </div>
+                <label class="mapa-check">
+                    <input type="checkbox" @bind="incluirAnulados" @bind:after="RedibujarAsync" />
+                    Incluir anulados
+                </label>
+            </div>
+
+            @if (cargando && !establecimientos.Any() && !eventos.Any())
+            {
+                <p>Cargando el mapa...</p>
+            }
+
+            <div id="@IdMapa" class="mapa-canvas" aria-label="Mapa de establecimientos y eventos"></div>
+            <p class="muted mapa-leyenda">
+                <span class="mapa-leyenda__item">
+                    <span class="mapa-leyenda__pin mapa-leyenda__pin--exacto"></span> establecimiento ubicado
+                </span>
+                <span class="mapa-leyenda__item">
+                    <span class="mapa-leyenda__pin mapa-leyenda__pin--aproximado"></span> ubicación aproximada por eventos
+                </span>
+                <span class="mapa-leyenda__item">
+                    <span class="mapa-leyenda__pin mapa-leyenda__pin--evento"></span> evento geolocalizado
+                </span>
+            </p>
+        </section>
+
+        <aside class="card mapa-panel">
+            <h2>Establecimientos (@establecimientos.Count)</h2>
+
+            @if (!establecimientos.Any())
+            {
+                <p class="muted">No hay establecimientos para la empresa activa.</p>
+            }
+            else
+            {
+                <ul class="mapa-lista">
+                    @foreach (var establecimiento in establecimientos)
+                    {
+                        <li class="mapa-lista__item">
+                            <div class="mapa-lista__datos">
+                                <strong>@establecimiento.Nombre</strong>
+                                <small>@(establecimiento.Ubicacion ?? "Sin dirección registrada")</small>
+                                <span class="mapa-badge mapa-badge--@ClaseUbicacion(establecimiento)">
+                                    @EstadoUbicacion(establecimiento)
+                                </span>
+                            </div>
+                            <div class="actions">
+                                @if (CanManage)
+                                {
+                                    <button type="button" @onclick="() => AbrirSelectorAsync(establecimiento)">
+                                        @(coordenadas.ContainsKey(establecimiento.Id) ? "Mover" : "Ubicar")
+                                    </button>
+                                    @if (coordenadas.ContainsKey(establecimiento.Id))
+                                    {
+                                        <button type="button" class="destructive" @onclick="() => QuitarUbicacionAsync(establecimiento)">
+                                            Quitar
+                                        </button>
+                                    }
+                                }
+                            </div>
+                        </li>
+                    }
+                </ul>
+            }
+
+            <p class="muted mapa-nota">
+                Las ubicaciones se guardan en el frontend
+                (<code>Data/establecimientos-geo.json</code>) porque ApiSiga todavía no
+                expone coordenadas de establecimientos. Los pines aproximados usan el
+                centro de los eventos geolocalizados de cada establecimiento.
+            </p>
+        </aside>
+    </div>
+
+    @if (CanManage)
+    {
+        <SidePanel IsOpen="selectorAbierto" Title="Ubicar establecimiento" Eyebrow="@seleccionNombre" OnClose="CerrarSelectorAsync">
+            <p class="muted">
+                Hacé clic en el mapa o arrastrá el pin para marcar la ubicación.
+            </p>
+
+            <div id="@IdSelector" class="mapa-canvas mapa-canvas--selector" aria-label="Selector de ubicación del establecimiento"></div>
+
+            <div class="mapa-coordenadas">
+                <div class="form-field compact-field">
+                    <label for="mapa-lat">Latitud</label>
+                    <input id="mapa-lat" type="text" inputmode="decimal" @bind="selLatTexto" />
+                </div>
+                <div class="form-field compact-field">
+                    <label for="mapa-lng">Longitud</label>
+                    <input id="mapa-lng" type="text" inputmode="decimal" @bind="selLngTexto" />
+                </div>
+            </div>
+
+            <div class="form-field compact-field">
+                <label for="mapa-direccion">Buscar por dirección</label>
+                <div class="mapa-busqueda">
+                    <input id="mapa-direccion" type="text" @bind="selDireccionTexto"
+                           placeholder="Ruta 8 km 120, Lavalleja" />
+                    <button type="button" @onclick="BuscarDireccionAsync" disabled="@geocodificando">
+                        @(geocodificando ? "Buscando..." : "Buscar")
+                    </button>
+                </div>
+                <small class="muted">
+                    Usa OpenStreetMap Nominatim. Si no encuentra la dirección, marcá el punto a mano.
+                </small>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(selAviso))
+            {
+                <p class="mapa-aviso">@selAviso</p>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(selError))
+            {
+                <p class="form-error" role="alert">@selError</p>
+            }
+
+            <div class="form-actions mapa-acciones">
+                <button type="button" @onclick="UsarMiUbicacionAsync">
+                    Usar mi ubicación
+                </button>
+                <button type="button" class="primary-button primary-button--inline"
+                        @onclick="GuardarUbicacionAsync" disabled="@guardando">
+                    @(guardando ? "Guardando..." : "Guardar ubicación")
+                </button>
+            </div>
+        </SidePanel>
+    }
+</RoleGuard>
+
+@code {
+    private const string IdMapa = "mapa-establecimientos";
+    private const string IdSelector = "mapa-selector";
+
+    private static readonly JsonSerializerOptions OpcionesInterop = new(JsonSerializerDefaults.Web);
+
+    private IReadOnlyList<EstablecimientoDto> establecimientos = [];
+    private IReadOnlyList<EventoDto> eventos = [];
+    private IReadOnlyList<TipoEventoDto> tiposEvento = [];
+    private readonly Dictionary<Guid, CoordenadaEstablecimiento> coordenadas = [];
+    private Dictionary<Guid, Guid> potreroAEstablecimiento = [];
+    private Dictionary<Guid, Guid> campanaPotreroAPotrero = [];
+
+    private OpcionesMapa opcionesMapa = new(-34.9011, -56.1645, 7, string.Empty, string.Empty);
+
+    private bool cargando;
+    private bool avisoTiles;
+    private string? error;
+
+    private string tipoEventoFiltro = string.Empty;
+    private DateTime? desdeFiltro;
+    private DateTime? hastaFiltro;
+    private bool incluirAnulados;
+
+    private bool selectorAbierto;
+    private bool pendienteSelector;
+    private bool guardando;
+    private bool geocodificando;
+    private Guid seleccionId;
+    private string seleccionNombre = string.Empty;
+    private string seleccionUbicacion = string.Empty;
+    private string selLatTexto = string.Empty;
+    private string selLngTexto = string.Empty;
+    private double selLat;
+    private double selLng;
+    private string selDireccionTexto = string.Empty;
+    private string? selError;
+    private string? selAviso;
+
+    private IJSObjectReference? modulo;
+    private DotNetObjectReference<Mapa>? referencia;
+    private bool mapaCreado;
+
+    private bool CanManage => Auth.CanManage(SigaModule.Establecimientos);
+
+    protected override async Task OnInitializedAsync()
+    {
+        Notificador.Cambio += HandleChanged;
+
+        var seccion = Config.GetSection("Mapa");
+        opcionesMapa = new OpcionesMapa(
+            seccion.GetValue<double?>("CentroLat") ?? -34.9011,
+            seccion.GetValue<double?>("CentroLng") ?? -56.1645,
+            seccion.GetValue<int?>("Zoom") ?? 7,
+            seccion["TileUrl"] ?? "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+            seccion["Attribution"] ?? "&copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a>");
+
+        await CargarAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                modulo = await JS.InvokeAsync<IJSObjectReference>("import", "./js/mapa.js");
+                referencia = DotNetObjectReference.Create(this);
+
+                mapaCreado = await modulo.InvokeAsync<bool>("crearMapa", IdMapa, new
+                {
+                    centroLat = opcionesMapa.CentroLat,
+                    centroLng = opcionesMapa.CentroLng,
+                    zoom = opcionesMapa.Zoom,
+                    tileUrl = opcionesMapa.TileUrl,
+                    attribution = opcionesMapa.Attribution
+                }, referencia);
+
+                if (!mapaCreado)
+                {
+                    error = "No se pudo inicializar el mapa. Recargá la página.";
+                    return;
+                }
+
+                await DibujarPuntosAsync();
+            }
+            catch (Exception exception) when (exception is JSException or InvalidOperationException)
+            {
+                Logger.LogWarning(exception, "No se pudo inicializar el mapa.");
+                error = "No se pudo inicializar el mapa. Recargá la página.";
+            }
+        }
+
+        if (pendienteSelector && selectorAbierto)
+        {
+            pendienteSelector = false;
+            await IniciarSelectorAsync();
+        }
+    }
+
+    private async Task CargarAsync()
+    {
+        cargando = true;
+        error = null;
+
+        try
+        {
+            var establecimientosTask = EstablecimientoService.GetAllAsync(incluirInactivos: true);
+            var potrerosTask = PotreroService.GetAllAsync(incluirInactivos: true);
+            var campanasTask = CampanaService.GetAllAsync(incluirAnuladas: true);
+            var eventosTask = EventoService.GetAllAsync(incluirAnulados: true);
+            var tiposTask = TipoEventoService.GetAllAsync(incluirInactivos: true);
+            var coordenadasTask = GeoService.GetTodasAsync();
+
+            await Task.WhenAll(
+                establecimientosTask,
+                potrerosTask,
+                campanasTask,
+                eventosTask,
+                tiposTask,
+                coordenadasTask);
+
+            var empresaActiva = Contexto.EmpresaActivaId;
+
+            establecimientos = FiltrarEmpresa(establecimientosTask.Result, empresaActiva);
+            var potreros = FiltrarEmpresa(potrerosTask.Result, empresaActiva);
+            var campanas = FiltrarEmpresa(campanasTask.Result, empresaActiva);
+
+            eventos = FiltrarEmpresa(eventosTask.Result, empresaActiva);
+            tiposEvento = tiposTask.Result;
+
+            potreroAEstablecimiento = potreros
+                .GroupBy(potrero => potrero.Id)
+                .ToDictionary(grupo => grupo.Key, grupo => grupo.First().EstablecimientoId);
+
+            campanaPotreroAPotrero = campanas
+                .SelectMany(campana => campana.Potreros)
+                .GroupBy(campanaPotrero => campanaPotrero.Id)
+                .ToDictionary(grupo => grupo.Key, grupo => grupo.First().PotreroId);
+
+            coordenadas.Clear();
+            foreach (var coordenada in coordenadasTask.Result)
+            {
+                coordenadas[coordenada.EstablecimientoId] = coordenada;
+            }
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+        finally
+        {
+            cargando = false;
+        }
+
+        await DibujarPuntosAsync();
+    }
+
+    private static IReadOnlyList<T> FiltrarEmpresa<T>(IReadOnlyList<T> lista, Guid? empresaId)
+    {
+        if (empresaId is not Guid id)
+        {
+            return lista;
+        }
+
+        return lista.Where(item => item switch
+        {
+            EstablecimientoDto establecimiento => establecimiento.EmpresaId == id,
+            PotreroDto potrero => potrero.EmpresaId == id,
+            CampanaDto campana => campana.EmpresaId == id,
+            EventoDto evento => evento.EmpresaId == id,
+            _ => true
+        }).ToList();
+    }
+
+    private async Task DibujarPuntosAsync()
+    {
+        if (modulo is null || !mapaCreado)
+        {
+            return;
+        }
+
+        try
+        {
+            var json = JsonSerializer.Serialize(ConstruirPuntos(), OpcionesInterop);
+            await modulo.InvokeVoidAsync("dibujarPuntos", IdMapa, json);
+            await modulo.InvokeVoidAsync("ajustarVista", IdMapa);
+        }
+        catch (JSException exception)
+        {
+            Logger.LogWarning(exception, "No se pudieron dibujar los puntos del mapa.");
+        }
+        catch (JSDisconnectedException)
+        {
+            // El circuito se cerró; no hay nada que dibujar.
+        }
+    }
+
+    private Task RedibujarAsync() => DibujarPuntosAsync();
+
+    private List<PuntoMapa> ConstruirPuntos()
+    {
+        var puntos = new List<PuntoMapa>();
+        var eventosVisibles = eventos.Where(CoincideFiltro).ToList();
+        var eventosPorEstablecimiento = new Dictionary<Guid, List<EventoDto>>();
+
+        foreach (var evento in eventosVisibles)
+        {
+            if (evento.Latitud is not double latitud || evento.Longitud is not double longitud)
+            {
+                continue;
+            }
+
+            var potrero = evento.PotreroNombre ?? "Potrero sin nombre";
+            var detalle = $"{evento.Fecha:dd/MM/yyyy} · {potrero}"
+                + (string.IsNullOrWhiteSpace(evento.Descripcion) ? string.Empty : $" · {evento.Descripcion}");
+
+            puntos.Add(new PuntoMapa(
+                $"evento-{evento.Id}",
+                "evento",
+                evento.TipoEventoNombre ?? "Evento",
+                latitud,
+                longitud,
+                detalle,
+                $"/eventos/{evento.Id}"));
+
+            if (EstablecimientoDeEvento(evento) is Guid establecimientoId)
+            {
+                if (!eventosPorEstablecimiento.TryGetValue(establecimientoId, out var lista))
+                {
+                    lista = [];
+                    eventosPorEstablecimiento[establecimientoId] = lista;
+                }
+
+                lista.Add(evento);
+            }
+        }
+
+        foreach (var establecimiento in establecimientos)
+        {
+            if (coordenadas.TryGetValue(establecimiento.Id, out var coordenada))
+            {
+                puntos.Add(new PuntoMapa(
+                    $"establecimiento-{establecimiento.Id}",
+                    "establecimiento",
+                    establecimiento.Nombre,
+                    coordenada.Latitud,
+                    coordenada.Longitud,
+                    DetalleEstablecimiento(establecimiento, "Ubicación guardada"),
+                    null));
+                continue;
+            }
+
+            if (!eventosPorEstablecimiento.TryGetValue(establecimiento.Id, out var propios) || propios.Count == 0)
+            {
+                continue;
+            }
+
+            var latitudCentro = propios.Average(evento => evento.Latitud!.Value);
+            var longitudCentro = propios.Average(evento => evento.Longitud!.Value);
+
+            puntos.Add(new PuntoMapa(
+                $"aproximado-{establecimiento.Id}",
+                "aproximado",
+                $"{establecimiento.Nombre} (aprox.)",
+                latitudCentro,
+                longitudCentro,
+                $"{propios.Count} evento(s) geolocalizado(s). Marcá la ubicación exacta para mejorar el pin.",
+                null));
+        }
+
+        return puntos;
+    }
+
+    private bool CoincideFiltro(EventoDto evento)
+    {
+        if (!incluirAnulados && evento.Estado == EstadoEvento.Anulado)
+        {
+            return false;
+        }
+
+        if (Guid.TryParse(tipoEventoFiltro, out var tipoEventoId) && evento.TipoEventoId != tipoEventoId)
+        {
+            return false;
+        }
+
+        if (desdeFiltro is DateTime desde && evento.Fecha.Date < desde.Date)
+        {
+            return false;
+        }
+
+        if (hastaFiltro is DateTime hasta && evento.Fecha.Date > hasta.Date)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private Guid? EstablecimientoDeEvento(EventoDto evento)
+    {
+        if (!campanaPotreroAPotrero.TryGetValue(evento.CampanaPotreroId, out var potreroId))
+        {
+            return null;
+        }
+
+        return potreroAEstablecimiento.TryGetValue(potreroId, out var establecimientoId)
+            ? establecimientoId
+            : null;
+    }
+
+    private string EstadoUbicacion(EstablecimientoDto establecimiento)
+    {
+        if (coordenadas.ContainsKey(establecimiento.Id))
+        {
+            return "Ubicado";
+        }
+
+        return EventosDelEstablecimiento(establecimiento.Id).Any()
+            ? "Aproximado"
+            : "Sin ubicación";
+    }
+
+    private string ClaseUbicacion(EstablecimientoDto establecimiento) =>
+        EstadoUbicacion(establecimiento) switch
+        {
+            "Ubicado" => "exacto",
+            "Aproximado" => "aproximado",
+            _ => "sin"
+        };
+
+    private IEnumerable<EventoDto> EventosDelEstablecimiento(Guid establecimientoId) =>
+        eventos
+            .Where(CoincideFiltro)
+            .Where(evento => evento.Latitud is not null && evento.Longitud is not null)
+            .Where(evento => EstablecimientoDeEvento(evento) == establecimientoId);
+
+    private static string DetalleEstablecimiento(EstablecimientoDto establecimiento, string estado)
+    {
+        var partes = new List<string> { estado };
+
+        if (establecimiento.SuperficieHa is double superficie)
+        {
+            partes.Add($"{superficie:G} ha");
+        }
+
+        if (!string.IsNullOrWhiteSpace(establecimiento.Ubicacion))
+        {
+            partes.Add(establecimiento.Ubicacion);
+        }
+
+        partes.Add(establecimiento.Activo ? "Activo" : "Desactivado");
+
+        return string.Join(" · ", partes);
+    }
+
+    private void HandleChanged(string modulo)
+    {
+        if (modulo is not (ModulosDatos.Establecimientos
+            or ModulosDatos.Potreros
+            or ModulosDatos.Campanas
+            or ModulosDatos.Eventos
+            or ModulosDatos.Mapa
+            or ModulosDatos.EmpresaActiva))
+        {
+            return;
+        }
+
+        _ = InvokeAsync(async () =>
+        {
+            await CargarAsync();
+            StateHasChanged();
+        });
+    }
+
+    private Task AbrirSelectorAsync(EstablecimientoDto establecimiento)
+    {
+        seleccionId = establecimiento.Id;
+        seleccionNombre = establecimiento.Nombre;
+        seleccionUbicacion = establecimiento.Ubicacion ?? string.Empty;
+        selDireccionTexto = !string.IsNullOrWhiteSpace(establecimiento.Ubicacion)
+            ? establecimiento.Ubicacion!
+            : establecimiento.Nombre;
+        selError = null;
+        selAviso = null;
+
+        var coordenada = coordenadas.GetValueOrDefault(establecimiento.Id);
+        if (coordenada is not null)
+        {
+            selLat = coordenada.Latitud;
+            selLng = coordenada.Longitud;
+        }
+        else if (CentroDeEventos(establecimiento.Id) is { } centro)
+        {
+            selLat = centro.Latitud;
+            selLng = centro.Longitud;
+        }
+        else
+        {
+            selLat = opcionesMapa.CentroLat;
+            selLng = opcionesMapa.CentroLng;
+        }
+
+        ActualizarTextosCoordenada();
+        selectorAbierto = true;
+        pendienteSelector = true;
+
+        return Task.CompletedTask;
+    }
+
+    private (double Latitud, double Longitud)? CentroDeEventos(Guid establecimientoId)
+    {
+        var propios = EventosDelEstablecimiento(establecimientoId).ToList();
+        if (propios.Count == 0)
+        {
+            return null;
+        }
+
+        return (propios.Average(evento => evento.Latitud!.Value),
+                propios.Average(evento => evento.Longitud!.Value));
+    }
+
+    private async Task IniciarSelectorAsync()
+    {
+        if (modulo is null || referencia is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await modulo.InvokeVoidAsync("crearSelector", IdSelector, selLat, selLng, referencia);
+        }
+        catch (JSException exception)
+        {
+            Logger.LogWarning(exception, "No se pudo iniciar el selector de ubicación.");
+            selError = "No se pudo cargar el mini-mapa. Podés escribir las coordenadas a mano.";
+        }
+    }
+
+    [JSInvokable]
+    public Task OnPinMovido(double latitud, double longitud)
+    {
+        selLat = latitud;
+        selLng = longitud;
+        ActualizarTextosCoordenada();
+        return InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public Task OnTilesError()
+    {
+        avisoTiles = true;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task UsarMiUbicacionAsync()
+    {
+        if (modulo is null)
+        {
+            return;
+        }
+
+        selError = null;
+        selAviso = null;
+
+        try
+        {
+            var posicion = await modulo.InvokeAsync<double[]>("obtenerUbicacionActual");
+            if (posicion is not { Length: 2 })
+            {
+                selError = "El navegador no devolvió una ubicación válida.";
+                return;
+            }
+
+            selLat = posicion[0];
+            selLng = posicion[1];
+            ActualizarTextosCoordenada();
+            await modulo.InvokeVoidAsync("fijarPin", IdSelector, selLat, selLng);
+            selAviso = "Se usó la ubicación del navegador. Revisá el pin antes de guardar.";
+        }
+        catch (JSException exception)
+        {
+            selError = $"No se pudo obtener la ubicación: {exception.Message}";
+        }
+    }
+
+    private async Task BuscarDireccionAsync()
+    {
+        if (modulo is null)
+        {
+            return;
+        }
+
+        selError = null;
+        selAviso = null;
+        geocodificando = true;
+
+        try
+        {
+            var json = await modulo.InvokeAsync<string?>("buscarDireccion", selDireccionTexto);
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                selError = "No se encontró la dirección. Probá con una más precisa o marcá el punto en el mapa.";
+                return;
+            }
+
+            var direccion = JsonSerializer.Deserialize<DireccionEncontrada>(json, OpcionesInterop);
+            if (direccion is null)
+            {
+                selError = "El servicio de direcciones devolvió una respuesta inesperada.";
+                return;
+            }
+
+            selLat = direccion.Latitud;
+            selLng = direccion.Longitud;
+            ActualizarTextosCoordenada();
+            await modulo.InvokeVoidAsync("fijarPin", IdSelector, selLat, selLng);
+            selAviso = $"Encontrado: {direccion.Direccion}";
+        }
+        catch (JSException exception)
+        {
+            Logger.LogWarning(exception, "Falló la búsqueda de direcciones.");
+            selError = "No se pudo buscar la dirección. Revisá la conexión o marcá el punto a mano.";
+        }
+        finally
+        {
+            geocodificando = false;
+        }
+    }
+
+    private async Task GuardarUbicacionAsync()
+    {
+        selError = null;
+
+        if (!TryLeerCoordenada(selLatTexto, -90, 90, out var latitud))
+        {
+            selError = "La latitud debe ser un número entre -90 y 90.";
+            return;
+        }
+
+        if (!TryLeerCoordenada(selLngTexto, -180, 180, out var longitud))
+        {
+            selError = "La longitud debe ser un número entre -180 y 180.";
+            return;
+        }
+
+        guardando = true;
+
+        try
+        {
+            await GeoService.GuardarAsync(seleccionId, latitud, longitud);
+            coordenadas[seleccionId] = new CoordenadaEstablecimiento
+            {
+                EstablecimientoId = seleccionId,
+                Latitud = latitud,
+                Longitud = longitud,
+                ActualizadaUtc = DateTime.UtcNow
+            };
+
+            await CerrarSelectorAsync();
+            await DibujarPuntosAsync();
+        }
+        catch (InvalidOperationException exception)
+        {
+            selError = exception.Message;
+        }
+        finally
+        {
+            guardando = false;
+        }
+    }
+
+    private async Task QuitarUbicacionAsync(EstablecimientoDto establecimiento)
+    {
+        error = null;
+
+        try
+        {
+            if (await GeoService.EliminarAsync(establecimiento.Id))
+            {
+                coordenadas.Remove(establecimiento.Id);
+                await DibujarPuntosAsync();
+            }
+        }
+        catch (InvalidOperationException exception)
+        {
+            error = exception.Message;
+        }
+    }
+
+    private async Task CerrarSelectorAsync()
+    {
+        selectorAbierto = false;
+        pendienteSelector = false;
+        selError = null;
+        selAviso = null;
+
+        if (modulo is not null)
+        {
+            try
+            {
+                await modulo.InvokeVoidAsync("destruir", IdSelector);
+            }
+            catch (JSException)
+            {
+                // El mapa ya no existe.
+            }
+        }
+    }
+
+    private void ActualizarTextosCoordenada()
+    {
+        selLatTexto = selLat.ToString("0.######", CultureInfo.InvariantCulture);
+        selLngTexto = selLng.ToString("0.######", CultureInfo.InvariantCulture);
+    }
+
+    private static bool TryLeerCoordenada(string? texto, double minimo, double maximo, out double valor)
+    {
+        valor = 0;
+
+        if (string.IsNullOrWhiteSpace(texto))
+        {
+            return false;
+        }
+
+        var normalizado = texto.Trim().Replace(',', '.');
+
+        return double.TryParse(
+                   normalizado,
+                   NumberStyles.Float,
+                   CultureInfo.InvariantCulture,
+                   out valor)
+               && double.IsFinite(valor)
+               && valor >= minimo
+               && valor <= maximo;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Notificador.Cambio -= HandleChanged;
+
+        if (modulo is not null)
+        {
+            try
+            {
+                await modulo.InvokeVoidAsync("destruir", IdMapa);
+                await modulo.InvokeVoidAsync("destruir", IdSelector);
+                await modulo.DisposeAsync();
+            }
+            catch (Exception exception) when (exception is JSException or JSDisconnectedException or ObjectDisposedException)
+            {
+                // El circuito ya se cerró.
+            }
+        }
+
+        referencia?.Dispose();
+    }
+
+    private sealed record OpcionesMapa(
+        double CentroLat,
+        double CentroLng,
+        int Zoom,
+        string TileUrl,
+        string Attribution);
+}

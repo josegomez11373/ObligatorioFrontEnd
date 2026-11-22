@@ -14,7 +14,10 @@ public enum SigaModule
     Catalogos,
     Reportes,
     Usuarios,
-    Auditoria
+    Auditoria,
+    Insumos,
+    Maquinaria,
+    Contratistas
 }
 
 /// <summary>
@@ -36,6 +39,9 @@ public static class Permissions
         SigaModule.Catalogos => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa or UserRole.IngenieroAgronomo,
         SigaModule.Reportes => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa or UserRole.IngenieroAgronomo,
         SigaModule.Auditoria => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa,
+        SigaModule.Insumos => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa or UserRole.IngenieroAgronomo,
+        SigaModule.Maquinaria => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa or UserRole.IngenieroAgronomo,
+        SigaModule.Contratistas => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa,
         _ => false
     };
 
@@ -49,6 +55,9 @@ public static class Permissions
         SigaModule.Eventos => role is UserRole.IngenieroAgronomo or UserRole.OperarioCampo,
         SigaModule.Tareas => CanCreateTarea(role),
         SigaModule.Catalogos => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa,
+        SigaModule.Insumos => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa,
+        SigaModule.Maquinaria => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa,
+        SigaModule.Contratistas => role is UserRole.AdministradorGeneral or UserRole.AdministradorEmpresa,
         _ => false
     };
 

@@ -11,6 +11,7 @@ namespace ObligatorioFrontEnd.Services;
 /// </summary>
 public sealed class ServicioReportesApi : IServicioReportes
 {
+    private readonly IUserScope _usuario;
     private readonly IServicioEmpresas _empresas;
     private readonly IServicioEstablecimientos _establecimientos;
     private readonly IServicioPotreros _potreros;
@@ -20,6 +21,7 @@ public sealed class ServicioReportesApi : IServicioReportes
     private readonly IServicioAuditoria _auditoria;
 
     public ServicioReportesApi(
+        IUserScope usuario,
         IServicioEmpresas empresas,
         IServicioEstablecimientos establecimientos,
         IServicioPotreros potreros,
@@ -28,6 +30,7 @@ public sealed class ServicioReportesApi : IServicioReportes
         IServicioTareas tareas,
         IServicioAuditoria auditoria)
     {
+        _usuario = usuario;
         _empresas = empresas;
         _establecimientos = establecimientos;
         _potreros = potreros;
@@ -39,22 +42,30 @@ public sealed class ServicioReportesApi : IServicioReportes
 
     public async Task<ReportDashboard> BuildAsync(
         ReportFilter filtro,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int? limiteAuditoria = null)
     {
-        var empresasTask = VaciarSiFallaAsync(
+        var empresasTask = CargarSiPuedeAsync(
+            SigaModule.Empresas,
             () => _empresas.GetAllAsync(includeInactive: true, cancellationToken));
-        var establecimientosTask = VaciarSiFallaAsync(
+        var establecimientosTask = CargarSiPuedeAsync(
+            SigaModule.Establecimientos,
             () => _establecimientos.GetAllAsync(incluirInactivos: true, cancellationToken));
-        var potrerosTask = VaciarSiFallaAsync(
+        var potrerosTask = CargarSiPuedeAsync(
+            SigaModule.Potreros,
             () => _potreros.GetAllAsync(incluirInactivos: true, cancellationToken));
-        var campanasTask = VaciarSiFallaAsync(
+        var campanasTask = CargarSiPuedeAsync(
+            SigaModule.Campanas,
             () => _campanas.GetAllAsync(incluirAnuladas: true, cancellationToken));
-        var eventosTask = VaciarSiFallaAsync(
+        var eventosTask = CargarSiPuedeAsync(
+            SigaModule.Eventos,
             () => _eventos.GetAllAsync(incluirAnulados: true, cancellationToken: cancellationToken));
-        var tareasTask = VaciarSiFallaAsync(
+        var tareasTask = CargarSiPuedeAsync(
+            SigaModule.Tareas,
             () => _tareas.GetAllAsync(incluirAnuladas: true, cancellationToken: cancellationToken));
-        var auditoriaTask = VaciarSiFallaAsync(
-            () => _auditoria.BuscarTodoAsync(cancellationToken: cancellationToken));
+        var auditoriaTask = CargarSiPuedeAsync(
+            SigaModule.Auditoria,
+            () => CargarAuditoriaAsync(limiteAuditoria, cancellationToken));
 
         await Task.WhenAll(
             empresasTask,
@@ -74,6 +85,39 @@ public sealed class ServicioReportesApi : IServicioReportes
             await eventosTask,
             await tareasTask,
             await auditoriaTask);
+    }
+
+    private async Task<IReadOnlyList<AuditoriaDto>> CargarAuditoriaAsync(
+        int? limiteAuditoria,
+        CancellationToken cancellationToken)
+    {
+        // El resumen solo muestra las últimas novedades: no hace falta recorrer
+        // todas las páginas de auditoría.
+        if (limiteAuditoria is int limite)
+        {
+            var pagina = await _auditoria.BuscarAsync(
+                pagina: 1,
+                tamanoPagina: limite,
+                cancellationToken: cancellationToken);
+            return pagina.Items;
+        }
+
+        return await _auditoria.BuscarTodoAsync(cancellationToken: cancellationToken);
+    }
+
+    private Task<IReadOnlyList<T>> CargarSiPuedeAsync<T>(
+        SigaModule modulo,
+        Func<Task<IReadOnlyList<T>>> cargar)
+    {
+        var usuario = _usuario.CurrentUser;
+
+        // El rol manda: pedir un listado que la API va a rechazar solo genera 403.
+        if (usuario is null || !Permissions.CanView(usuario.Role, modulo))
+        {
+            return Task.FromResult<IReadOnlyList<T>>([]);
+        }
+
+        return VaciarSiFallaAsync(cargar);
     }
 
     private static async Task<IReadOnlyList<T>> VaciarSiFallaAsync<T>(

@@ -5,6 +5,7 @@
 @inject IServicioEmpresas EmpresaService
 @inject IServicioEstablecimientos EstablecimientoService
 @inject IServicioPotreros PotreroService
+@inject IAuthService Auth
 @inject NotificadorDatos Notificador
 
 @using ObligatorioFrontEnd.Api.Contratos
@@ -51,7 +52,7 @@
         <article><span class="status-icon">@Dashboard.Campanas</span><h2>Campañas</h2><p>@Dashboard.CampanasActivas activas · @Dashboard.CampanasCerradas cerradas.</p></article>
         <article><span class="status-icon">@Dashboard.Eventos</span><h2>Eventos</h2><p>@Dashboard.EventosRegistrados registrados · @Dashboard.EventosAnulados anulados.</p></article>
         <article><span class="status-icon">@Dashboard.Tareas</span><h2>Tareas</h2><p>@Dashboard.TareasPendientes pendientes · @Dashboard.TareasVerificadas verificadas.</p></article>
-        <article><span class="status-icon">@Dashboard.CostoTareas.ToString("C")</span><h2>Costos</h2><p>Costo acumulado de las tareas filtradas (sin anuladas).</p></article>
+        <article><span class="status-icon metric-currency">@Dashboard.CostoTareas.ToString("C")</span><h2>Costos</h2><p>Costo acumulado de las tareas filtradas (sin anuladas).</p></article>
         <article><span class="status-icon">@Dashboard.RecursosUtilizados</span><h2>Recursos</h2><p>Insumos y maquinaria asociados a tareas.</p></article>
         <article><span class="status-icon">@Dashboard.TareasRealizadas</span><h2>Realizadas</h2><p>Tareas realizadas pendientes o completadas de verificación.</p></article>
     </section>
@@ -355,11 +356,15 @@
 
     @if (filtersOpen)
     {
-        <div class="report-drawer-backdrop" @onclick="CloseFilters">
+        <div class="report-drawer-backdrop"
+             @onpointerdown="MarcarPresionEnFondo"
+             @onclick="CerrarSiPresionEnFondo">
             <aside class="report-drawer"
                    role="dialog"
                    aria-modal="true"
                    aria-labelledby="report-drawer-title"
+                   @onpointerdown:stopPropagation="true"
+                   @onpointerup="DesmarcarPresion"
                    @onclick:stopPropagation="true">
                 <header class="report-drawer__header">
                     <div>
@@ -373,16 +378,19 @@
                 <div class="report-drawer__body">
                     <fieldset class="report-drawer__group">
                         <legend>Alcance</legend>
-                        <div class="form-field">
-                            <label for="rep-empresa">Empresa</label>
-                            <select id="rep-empresa" @bind="draft.Empresa" @bind:after="OnDraftEmpresaChanged">
-                                <option value="">Todas las empresas visibles</option>
-                                @foreach (var empresa in empresas)
-                                {
-                                    <option value="@empresa.Id">@empresa.Nombre</option>
-                                }
-                            </select>
-                        </div>
+                        @if (Auth.CanView(SigaModule.Empresas))
+                        {
+                            <div class="form-field">
+                                <label for="rep-empresa">Empresa</label>
+                                <select id="rep-empresa" @bind="draft.Empresa" @bind:after="OnDraftEmpresaChanged">
+                                    <option value="">Todas las empresas visibles</option>
+                                    @foreach (var empresa in empresas)
+                                    {
+                                        <option value="@empresa.Id">@empresa.Nombre</option>
+                                    }
+                                </select>
+                            </div>
+                        }
                         <div class="form-row">
                             <div class="form-field">
                                 <label for="rep-establecimiento">Establecimiento</label>
@@ -503,6 +511,7 @@
     private FilterState draft = new();
     private FilterState applied = new();
     private bool filtersOpen;
+    private bool catalogosCargados;
     private bool cargando;
     private string? error;
     private string activeReport = "potrero";
@@ -599,7 +608,6 @@
     protected override async Task OnInitializedAsync()
     {
         Notificador.Cambio += HandleChanged;
-        await LoadCatalogsAsync();
         await ActualizarAsync();
     }
 
@@ -607,10 +615,19 @@
     {
         try
         {
-            empresas = await EmpresaService.GetAllAsync(includeInactive: true);
-            establecimientos = await EstablecimientoService.GetAllAsync(incluirInactivos: true);
-            potreros = await PotreroService.GetAllAsync(incluirInactivos: true);
-            campanas = await CampanaService.GetAllAsync(incluirAnuladas: true);
+            empresas = Auth.CanView(SigaModule.Empresas)
+                ? await EmpresaService.GetAllAsync(includeInactive: true)
+                : [];
+            establecimientos = Auth.CanView(SigaModule.Establecimientos)
+                ? await EstablecimientoService.GetAllAsync(incluirInactivos: true)
+                : [];
+            potreros = Auth.CanView(SigaModule.Potreros)
+                ? await PotreroService.GetAllAsync(incluirInactivos: true)
+                : [];
+            campanas = Auth.CanView(SigaModule.Campanas)
+                ? await CampanaService.GetAllAsync(incluirAnuladas: true)
+                : [];
+            catalogosCargados = true;
         }
         catch (InvalidOperationException exception)
         {
@@ -620,16 +637,41 @@
 
     private void SelectReport(string id) => activeReport = id;
 
-    private void OpenFilters()
+    private async Task OpenFilters()
     {
+        // Los catálogos solo hacen falta para el panel de filtros: se piden la
+        // primera vez que se abre y no en cada carga de la página.
+        if (!catalogosCargados)
+        {
+            await LoadCatalogsAsync();
+        }
+
         draft = applied.Clone();
         filtersOpen = true;
     }
 
     private void CloseFilters()
     {
+        presionEnFondo = false;
         filtersOpen = false;
         draft = applied.Clone();
+    }
+
+    // Igual que en SidePanel: solo cerrar si la presión empezó en el fondo.
+    private bool presionEnFondo;
+
+    private void MarcarPresionEnFondo() => presionEnFondo = true;
+
+    private void DesmarcarPresion() => presionEnFondo = false;
+
+    private void CerrarSiPresionEnFondo()
+    {
+        if (!presionEnFondo)
+        {
+            return;
+        }
+
+        CloseFilters();
     }
 
     private async Task ApplyFilters()
@@ -673,7 +715,11 @@
 
         _ = InvokeAsync(async () =>
         {
-            await LoadCatalogsAsync();
+            if (catalogosCargados)
+            {
+                await LoadCatalogsAsync();
+            }
+
             await ActualizarAsync();
             StateHasChanged();
         });

@@ -46,34 +46,36 @@
         }
         else
         {
-            <table class="table">
-                <thead>
-                    <tr><th>Campaña</th><th>Empresa</th><th>Cultivo</th><th>Potreros</th><th>Período</th><th>Estado</th><th></th></tr>
-                </thead>
-                <tbody>
-                    @foreach (var campana in campanas)
-                    {
-                        <tr class="@(campana.Estado is EstadoCampana.Cerrada or EstadoCampana.Anulada ? "row-muted" : null)">
-                            <td>@campana.Nombre</td>
-                            <td>@(Contexto.EmpresaActiva?.Nombre ?? "—")</td>
-                            <td>@campana.CultivoNombre</td>
-                            <td>@PotrerosText(campana)</td>
-                            <td>@PeriodText(campana)</td>
-                            <td><span class="state-badge @StateClass(campana.Estado)">@campana.Estado.DisplayName()</span></td>
-                            <td class="actions">
-                                @if (CanManage)
-                                {
-                                    <button type="button" @onclick="() => EditCampana(campana.Id)">Editar</button>
-                                    @if (campana.Estado == EstadoCampana.Activa)
+            <div class="table-wrap">
+                <table class="table">
+                    <thead>
+                        <tr><th>Campaña</th><th>Empresa</th><th>Cultivo</th><th>Potreros</th><th>Período</th><th>Estado</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var campana in campanas)
+                        {
+                            <tr class="@(campana.Estado is EstadoCampana.Cerrada or EstadoCampana.Anulada ? "row-muted" : null)">
+                                <td>@campana.Nombre</td>
+                                <td>@(Contexto.EmpresaActiva?.Nombre ?? "—")</td>
+                                <td>@campana.CultivoNombre</td>
+                                <td>@PotrerosText(campana)</td>
+                                <td>@PeriodText(campana)</td>
+                                <td><span class="state-badge @StateClass(campana.Estado)">@campana.Estado.DisplayName()</span></td>
+                                <td class="actions">
+                                    @if (CanManage)
                                     {
-                                        <button type="button" @onclick="() => BeginCerrar(campana)">Cerrar</button>
+                                        <button type="button" @onclick="() => EditCampana(campana.Id)">Editar</button>
+                                        @if (campana.Estado == EstadoCampana.Activa)
+                                        {
+                                            <button type="button" @onclick="() => BeginCerrar(campana)">Cerrar</button>
+                                        }
                                     }
-                                }
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
         }
 
         @if (campanaCerrar is not null)

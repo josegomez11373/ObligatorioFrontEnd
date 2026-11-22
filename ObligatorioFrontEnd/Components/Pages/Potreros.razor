@@ -42,32 +42,34 @@
         }
         else
         {
-            <table class="table">
-                <thead>
-                    <tr><th>Establecimiento</th><th>Nombre</th><th>Superficie (ha)</th><th>Estado</th><th></th></tr>
-                </thead>
-                <tbody>
-                    @foreach (var potrero in potreros)
-                    {
-                        <tr class="@(potrero.Activo ? null : "row-muted")">
-                            <td>@potrero.EstablecimientoNombre</td>
-                            <td>@potrero.Nombre</td>
-                            <td>@(potrero.SuperficieHa?.ToString("G") ?? "—")</td>
-                            <td>@(potrero.Activo ? "Activo" : "Desactivado")</td>
-                            <td class="actions">
-                                @if (CanManage)
-                                {
-                                    <button type="button" @onclick="() => EditPotrero(potrero.Id)">Editar</button>
-                                    @if (potrero.Activo)
+            <div class="table-wrap">
+                <table class="table">
+                    <thead>
+                        <tr><th>Establecimiento</th><th>Nombre</th><th>Superficie (ha)</th><th>Estado</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var potrero in potreros)
+                        {
+                            <tr class="@(potrero.Activo ? null : "row-muted")">
+                                <td>@potrero.EstablecimientoNombre</td>
+                                <td>@potrero.Nombre</td>
+                                <td>@(potrero.SuperficieHa?.ToString("G") ?? "—")</td>
+                                <td>@(potrero.Activo ? "Activo" : "Desactivado")</td>
+                                <td class="actions">
+                                    @if (CanManage)
                                     {
-                                        <button type="button" class="destructive" @onclick="() => Deactivate(potrero.Id)">Desactivar</button>
+                                        <button type="button" @onclick="() => EditPotrero(potrero.Id)">Editar</button>
+                                        @if (potrero.Activo)
+                                        {
+                                            <button type="button" class="destructive" @onclick="() => Deactivate(potrero.Id)">Desactivar</button>
+                                        }
                                     }
-                                }
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
         }
     </section>
     @if (CanManage)

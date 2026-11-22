@@ -15,6 +15,10 @@
 
 <PageTitle>Eventos | SIGA</PageTitle>
 
+<HeadContent>
+    <link rel="stylesheet" href="lib/leaflet/leaflet.css" />
+</HeadContent>
+
 <RoleGuard Module="SigaModule.Eventos">
     <section class="page-header">
         <div>
@@ -71,32 +75,34 @@
         }
         else
         {
-            <table class="table">
-                <thead>
-                    <tr><th>Fecha</th><th>Tipo</th><th>Campaña / potrero</th><th>Autor</th><th>Fotos</th><th>Estado</th><th></th></tr>
-                </thead>
-                <tbody>
-                    @foreach (var evento in Filtered)
-                    {
-                        <tr class="@(evento.Estado == EstadoEvento.Anulado ? "row-muted" : null)">
-                            <td>@evento.Fecha.ToString("dd/MM/yyyy")</td>
-                            <td>@(evento.TipoEventoNombre ?? "—")</td>
-                            <td>@ContextoTexto(evento.CampanaPotreroId)</td>
-                            <td>@(evento.RegistradoPor ?? "—")</td>
-                            <td>@evento.Fotografias.Count</td>
-                            <td>@evento.Estado</td>
-                            <td class="actions">
-                                <button @onclick="() => VerEvento(evento.Id)">Ver</button>
-                                @if (Auth.CanManage(SigaModule.Eventos) && evento.Estado == EstadoEvento.Registrado)
-                                {
-                                    <button @onclick="() => EditEvento(evento.Id)">Editar</button>
-                                    <button class="destructive" @onclick="() => BeginAnular(evento.Id)">Anular</button>
-                                }
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
+            <div class="table-wrap">
+                <table class="table">
+                    <thead>
+                        <tr><th>Fecha</th><th>Tipo</th><th>Campaña / potrero</th><th>Autor</th><th>Fotos</th><th>Estado</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var evento in Filtered)
+                        {
+                            <tr class="@(evento.Estado == EstadoEvento.Anulado ? "row-muted" : null)">
+                                <td>@evento.Fecha.ToString("dd/MM/yyyy")</td>
+                                <td>@(evento.TipoEventoNombre ?? "—")</td>
+                                <td>@ContextoTexto(evento.CampanaPotreroId)</td>
+                                <td>@(evento.RegistradoPor ?? "—")</td>
+                                <td>@evento.Fotografias.Count</td>
+                                <td>@evento.Estado</td>
+                                <td class="actions">
+                                    <button @onclick="() => VerEvento(evento.Id)">Ver</button>
+                                    @if (Auth.CanManage(SigaModule.Eventos) && evento.Estado == EstadoEvento.Registrado)
+                                    {
+                                        <button @onclick="() => EditEvento(evento.Id)">Editar</button>
+                                        <button class="destructive" @onclick="() => BeginAnular(evento.Id)">Anular</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
         }
 
         @if (anularId is Guid anularEventoId)
@@ -332,9 +338,15 @@
 
         try
         {
-            eventos = await EventoService.GetAllAsync(incluirAnulados: true);
-            tiposEvento = await TipoEventoService.GetAllAsync(incluirInactivos: true);
-            campanas = await CampanaService.GetAllAsync(incluirAnuladas: false);
+            var eventosTask = EventoService.GetAllAsync(incluirAnulados: true);
+            var tiposTask = TipoEventoService.GetAllAsync(incluirInactivos: true);
+            var campanasTask = CampanaService.GetAllAsync(incluirAnuladas: false);
+
+            await Task.WhenAll(eventosTask, tiposTask, campanasTask);
+
+            eventos = await eventosTask;
+            tiposEvento = await tiposTask;
+            campanas = await campanasTask;
 
             if (selectedEvento is not null)
             {

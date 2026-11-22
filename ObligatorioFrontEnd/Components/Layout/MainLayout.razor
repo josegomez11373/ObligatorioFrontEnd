@@ -1,8 +1,10 @@
 @inherits LayoutComponentBase
 @implements IDisposable
+@implements IAsyncDisposable
 @inject IAuthService Auth
 @inject IContextoEmpresa Contexto
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 
 @if (Auth.CurrentUser is null)
 {
@@ -11,13 +13,22 @@
 else
 {
     <div class="siga-shell">
-        <aside class="sidebar">
-            <a class="brand" href="/" aria-label="SIGA inicio">
-                <span class="brand-mark">S</span>
-                <span><strong>SIGA</strong><small>Gestión agropecuaria</small></span>
-            </a>
+        <div class="nav-backdrop @(menuAbierto ? "is-open" : null)" @onclick="CerrarMenu" aria-hidden="true"></div>
 
-            <nav class="main-nav" aria-label="Navegación principal">
+        <aside class="sidebar @(menuAbierto ? "is-open" : null)"
+               @ref="panelNav"
+               tabindex="-1"
+               aria-label="Navegación"
+               @onkeydown="HandleNavKeyDown">
+            <div class="sidebar__bar">
+                <a class="brand" href="/" aria-label="SIGA inicio">
+                    <span class="brand-mark">S</span>
+                    <span><strong>SIGA</strong><small>Gestión agropecuaria</small></span>
+                </a>
+                <button class="icon-button nav-close" type="button" aria-label="Cerrar menú" @onclick="CerrarMenu">✕</button>
+            </div>
+
+            <nav class="main-nav" aria-label="Navegación principal" @onclick="CerrarMenu">
                 <NavLink href="/" Match="NavLinkMatch.All"><span>▦</span> Resumen</NavLink>
                 @if (Auth.CanView(SigaModule.Empresas))
                 {
@@ -26,7 +37,8 @@ else
                 @if (Auth.CanView(SigaModule.Establecimientos))
                 {
                     <NavLink href="/establecimientos"><span>⌂</span> Establecimientos</NavLink>
-                    <NavLink href="/potreros"><span>⛳</span> Potreros</NavLink>
+                    <NavLink href="/potreros"><span>⬚</span> Potreros</NavLink>
+                    <NavLink href="/mapa"><span>⌖</span> Mapa</NavLink>
                     @if (Auth.CanView(SigaModule.Campanas))
                     {
                         <NavLink href="/campanas"><span>◌</span> Campañas</NavLink>
@@ -84,7 +96,18 @@ else
             </div>
         </aside>
 
-        <main class="page-content">
+        <header class="mobile-topbar">
+            <button class="nav-toggle" type="button" aria-label="Abrir menú" aria-expanded="@AriaBool(menuAbierto)" @ref="botonMenu" @onclick="AbrirMenu">
+                <span aria-hidden="true">☰</span>
+            </button>
+            <a class="brand brand--compact" href="/" aria-label="SIGA inicio" @onclick="CerrarMenu">
+                <span class="brand-mark brand-mark--compact">S</span>
+                <span><strong>SIGA</strong></span>
+            </a>
+            <span class="mobile-topbar__user" title="@Auth.CurrentUser?.Name @Auth.CurrentUser?.Role.DisplayName()">@Auth.CurrentUser?.Initials</span>
+        </header>
+
+        <main class="page-content" style="--section-index: '@IndiceSeccion'">
             @Body
         </main>
     </div>
@@ -102,12 +125,127 @@ else
         Auth.StateChanged += HandleAuthenticationChanged;
         Auth.Expirada += HandleExpirada;
         Contexto.Cambiada += HandleContextChanged;
+        Navigation.LocationChanged += HandleLocationChanged;
 
         if (!Auth.IsAuthenticated)
         {
             Navigation.NavigateTo("/login", replace: true);
         }
     }
+
+    private bool menuAbierto;
+    private bool enfocarMenu;
+    private bool scrollBloqueado;
+    private ElementReference panelNav;
+    private ElementReference botonMenu;
+    private IJSObjectReference? moduloUi;
+
+    private void AbrirMenu()
+    {
+        menuAbierto = true;
+        enfocarMenu = true;
+    }
+
+    private void CerrarMenu() => menuAbierto = false;
+
+    /// <summary>
+    /// Escape cierra el menú y devuelve el foco al botón ☰, igual que el panel
+    /// lateral. Sin esto el menú móvil solo se cerraba con el mouse.
+    /// </summary>
+    private async Task HandleNavKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key != "Escape")
+        {
+            return;
+        }
+
+        CerrarMenu();
+        StateHasChanged();
+
+        try
+        {
+            await botonMenu.FocusAsync();
+        }
+        catch (InvalidOperationException)
+        {
+            // El circuito se desconectó; el menú se cerrará con la navegación.
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (menuAbierto && enfocarMenu)
+        {
+            enfocarMenu = false;
+
+            try
+            {
+                await panelNav.FocusAsync();
+            }
+            catch (InvalidOperationException)
+            {
+                // El circuito se desconectó; no hay nada que enfocar.
+            }
+        }
+
+        if (menuAbierto == scrollBloqueado)
+        {
+            return;
+        }
+
+        scrollBloqueado = menuAbierto;
+
+        try
+        {
+            moduloUi ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/ui.js");
+            await moduloUi.InvokeVoidAsync("bloquearScroll", menuAbierto);
+        }
+        catch (JSDisconnectedException)
+        {
+            // El circuito se desconectó; el bloqueo de scroll ya no importa.
+        }
+    }
+
+    private static string AriaBool(bool valor) => valor ? "true" : "false";
+
+    /// <summary>
+    /// Folio editorial de la sección. Se expone como variable CSS en
+    /// <see cref="MainLayout"/> para que el encabezado lo muestre sin que
+    /// cada página tenga que declararlo.
+    /// </summary>
+    private string IndiceSeccion => Navigation.ToBaseRelativePath(Navigation.Uri)
+        .Split('?', '#')[0]
+        .Trim('/')
+        .ToLowerInvariant() switch
+    {
+        "" => "01",
+        "empresas" => "02",
+        "establecimientos" => "03",
+        "potreros" => "04",
+        "mapa" => "05",
+        "campanas" => "06",
+        "eventos" => "07",
+        "historial" => "08",
+        "tareas" => "09",
+        "cultivos" => "10",
+        "catalogos" => "11",
+        "tipos-evento" => "12",
+        "tipos-tarea" => "13",
+        "insumos" => "14",
+        "maquinaria" => "15",
+        "contratistas" => "16",
+        "reportes" => "17",
+        "usuarios" => "18",
+        "auditoria" => "19",
+        _ => "—"
+    };
+
+    private void HandleLocationChanged(object? sender, LocationChangedEventArgs args) =>
+        InvokeAsync(() =>
+        {
+            menuAbierto = false;
+            StateHasChanged();
+        });
 
     private async Task Logout()
     {
@@ -140,5 +278,23 @@ else
         Auth.StateChanged -= HandleAuthenticationChanged;
         Auth.Expirada -= HandleExpirada;
         Contexto.Cambiada -= HandleContextChanged;
+        Navigation.LocationChanged -= HandleLocationChanged;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Dispose();
+
+        if (moduloUi is not null)
+        {
+            try
+            {
+                await moduloUi.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // El circuito ya se cerró; el módulo lo libera el navegador.
+            }
+        }
     }
 }

@@ -126,7 +126,7 @@ public sealed class ContextoEmpresa : IContextoEmpresa
         return true;
     }
 
-    public async Task RefrescarAsync(CancellationToken cancellationToken = default)
+    private async Task RefrescarAsync(CancellationToken cancellationToken = default)
     {
         var anterior = EmpresaActivaId;
         await InicializarAsync(cancellationToken);

@@ -64,33 +64,35 @@
         }
         else
         {
-            <table class="table">
-                <thead>
-                    <tr><th>Tipo</th><th>Descripción</th><th>Campaña / potrero</th><th>Fecha</th><th>Ejecutor</th><th>Recursos</th><th>Costo</th><th>Estado</th><th></th></tr>
-                </thead>
-                <tbody>
-                    @foreach (var tarea in Filtered)
-                    {
-                        <tr class="@(tarea.Estado == EstadoTarea.Anulada ? "row-muted" : null)">
-                            <td>@(tarea.TipoTareaNombre ?? "—")</td>
-                            <td>@tarea.Descripcion</td>
-                            <td>@ContextoTexto(tarea.CampanaPotreroId)</td>
-                            <td>@(tarea.FechaPlanificada?.ToString("dd/MM/yyyy") ?? "—")</td>
-                            <td>@ExecutorName(tarea)</td>
-                            <td>@tarea.Recursos.Count</td>
-                            <td>@((tarea.Costo ?? 0).ToString("C"))</td>
-                            <td>@tarea.Estado</td>
-                            <td class="actions">
-                                <button @onclick="() => SelectTask(tarea.Id)">Detalle</button>
-                                @if (CanCreate && tarea.Estado is EstadoTarea.Planificada or EstadoTarea.Asignada)
-                                {
-                                    <button @onclick="() => EditTarea(tarea.Id)">Editar</button>
-                                }
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
+            <div class="table-wrap">
+                <table class="table">
+                    <thead>
+                        <tr><th>Tipo</th><th>Descripción</th><th>Campaña / potrero</th><th>Fecha</th><th>Ejecutor</th><th>Recursos</th><th>Costo</th><th>Estado</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var tarea in Filtered)
+                        {
+                            <tr class="@(tarea.Estado == EstadoTarea.Anulada ? "row-muted" : null)">
+                                <td>@(tarea.TipoTareaNombre ?? "—")</td>
+                                <td>@tarea.Descripcion</td>
+                                <td>@ContextoTexto(tarea.CampanaPotreroId)</td>
+                                <td>@(tarea.FechaPlanificada?.ToString("dd/MM/yyyy") ?? "—")</td>
+                                <td>@ExecutorName(tarea)</td>
+                                <td>@tarea.Recursos.Count</td>
+                                <td class="nowrap">@((tarea.Costo ?? 0).ToString("C"))</td>
+                                <td>@tarea.Estado</td>
+                                <td class="actions">
+                                    <button @onclick="() => SelectTask(tarea.Id)">Detalle</button>
+                                    @if (CanCreate && tarea.Estado is EstadoTarea.Planificada or EstadoTarea.Asignada)
+                                    {
+                                        <button @onclick="() => EditTarea(tarea.Id)">Editar</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
         }
     </section>
 
@@ -194,20 +196,22 @@
             @if (selected.Recursos.Count > 0)
             {
                 <h3>Recursos registrados</h3>
-                <table class="table">
-                    <thead><tr><th>Tipo</th><th>Recurso</th><th>Cantidad</th><th>Costo</th></tr></thead>
-                    <tbody>
-                        @foreach (var recurso in selected.Recursos)
-                        {
-                            <tr>
-                                <td>@recurso.Tipo</td>
-                                <td>@(recurso.Nombre ?? "—")</td>
-                                <td>@recurso.Cantidad.ToString("G")</td>
-                                <td>@((recurso.CostoTotal ?? 0).ToString("C"))</td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
+                <div class="table-wrap">
+                    <table class="table">
+                        <thead><tr><th>Tipo</th><th>Recurso</th><th>Cantidad</th><th>Costo</th></tr></thead>
+                        <tbody>
+                            @foreach (var recurso in selected.Recursos)
+                            {
+                                <tr>
+                                    <td>@recurso.Tipo</td>
+                                    <td>@(recurso.Nombre ?? "—")</td>
+                                    <td>@recurso.Cantidad.ToString("G")</td>
+                                    <td class="nowrap">@((recurso.CostoTotal ?? 0).ToString("C"))</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
             }
 
             @if (CanAssign && selected.Estado is EstadoTarea.Planificada or EstadoTarea.Asignada)
@@ -266,22 +270,24 @@
                     @if (recursosPendientes.Count > 0)
                     {
                         <p class="field-help">Se registrarán al marcar la tarea como realizada.</p>
-                        <table class="table">
-                            <thead><tr><th>Tipo</th><th>Recurso</th><th>Cantidad</th><th></th></tr></thead>
-                            <tbody>
-                                @foreach (var recurso in recursosPendientes)
-                                {
-                                    <tr>
-                                        <td>@recurso.Tipo</td>
-                                        <td>@RecursoNombre(recurso)</td>
-                                        <td>@recurso.Cantidad.ToString("G")</td>
-                                        <td class="actions">
-                                            <button class="destructive" @onclick="() => RemovePending(recurso)">Quitar</button>
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
+                        <div class="table-wrap">
+                            <table class="table">
+                                <thead><tr><th>Tipo</th><th>Recurso</th><th>Cantidad</th><th></th></tr></thead>
+                                <tbody>
+                                    @foreach (var recurso in recursosPendientes)
+                                    {
+                                        <tr>
+                                            <td>@recurso.Tipo</td>
+                                            <td>@RecursoNombre(recurso)</td>
+                                            <td>@recurso.Cantidad.ToString("G")</td>
+                                            <td class="actions">
+                                                <button class="destructive" @onclick="() => RemovePending(recurso)">Quitar</button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
                     }
                 </div>
 
@@ -355,6 +361,7 @@
     private string? pageError;
     private bool formOpen;
     private bool cargando;
+    private bool catalogosFormularioCargados;
     private string search = string.Empty;
     private string filterEstado = string.Empty;
 
@@ -437,14 +444,28 @@
 
         try
         {
-            tareas = await TareaService.GetAllAsync(incluirAnuladas: true);
-            tiposTarea = await TipoTareaService.GetAllAsync(incluirInactivos: true);
-            campanas = await CampanaService.GetAllAsync(incluirAnuladas: false);
-            eventos = await EventoService.GetAllAsync(incluirAnulados: false);
-            insumos = await InsumoService.GetAllAsync(incluirInactivos: true);
-            maquinarias = await MaquinariaService.GetAllAsync(incluirInactivos: true);
-            usuarios = await UserService.GetAllAsync(incluirInactivos: false);
-            contratistas = await ContratistaService.GetAllAsync(incluirInactivos: false);
+            // Los listados independientes se piden en paralelo: antes se sumaban
+            // ocho esperas consecutivas contra la API.
+            var tareasTask = TareaService.GetAllAsync(incluirAnuladas: true);
+
+            // Solo pedimos los listados que el rol puede ver: si no, la API
+            // responde 403 y la página mostraba un error de permisos.
+            var tiposTask = CargarSiPuedeAsync(
+                SigaModule.Catalogos,
+                () => TipoTareaService.GetAllAsync(incluirInactivos: true));
+            var campanasTask = CargarSiPuedeAsync(
+                SigaModule.Campanas,
+                () => CampanaService.GetAllAsync(incluirAnuladas: false));
+            var eventosTask = CargarSiPuedeAsync(
+                SigaModule.Eventos,
+                () => EventoService.GetAllAsync(incluirAnulados: false));
+
+            await Task.WhenAll(tareasTask, tiposTask, campanasTask, eventosTask);
+
+            tareas = await tareasTask;
+            tiposTarea = await tiposTask;
+            campanas = await campanasTask;
+            eventos = await eventosTask;
 
             if (selected is not null)
             {
@@ -460,6 +481,51 @@
             cargando = false;
         }
     }
+
+    /// <summary>
+    /// Insumos, maquinaria, usuarios y contratistas solo se usan al abrir el
+    /// formulario o el detalle, así que no se descargan en cada visita.
+    /// </summary>
+    private async Task AsegurarCatalogosFormularioAsync()
+    {
+        if (catalogosFormularioCargados)
+        {
+            return;
+        }
+
+        try
+        {
+            var insumosTask = CargarSiPuedeAsync(
+                SigaModule.Insumos,
+                () => InsumoService.GetAllAsync(incluirInactivos: true));
+            var maquinariasTask = CargarSiPuedeAsync(
+                SigaModule.Maquinaria,
+                () => MaquinariaService.GetAllAsync(incluirInactivos: true));
+            var usuariosTask = CargarSiPuedeAsync(
+                SigaModule.Usuarios,
+                () => UserService.GetAllAsync(incluirInactivos: false));
+            var contratistasTask = CargarSiPuedeAsync(
+                SigaModule.Contratistas,
+                () => ContratistaService.GetAllAsync(incluirInactivos: false));
+
+            await Task.WhenAll(insumosTask, maquinariasTask, usuariosTask, contratistasTask);
+
+            insumos = await insumosTask;
+            maquinarias = await maquinariasTask;
+            usuarios = await usuariosTask;
+            contratistas = await contratistasTask;
+            catalogosFormularioCargados = true;
+        }
+        catch (InvalidOperationException exception)
+        {
+            pageError = exception.Message;
+        }
+    }
+
+    private Task<IReadOnlyList<T>> CargarSiPuedeAsync<T>(
+        SigaModule modulo,
+        Func<Task<IReadOnlyList<T>>> cargar) =>
+        Auth.CanView(modulo) ? cargar() : Task.FromResult<IReadOnlyList<T>>([]);
 
     private void HandleChanged(string modulo)
     {
@@ -477,20 +543,24 @@
 
         _ = InvokeAsync(async () =>
         {
+            catalogosFormularioCargados = false;
             await LoadAsync();
             StateHasChanged();
         });
     }
 
-    private void NewTarea()
+    private async Task NewTarea()
     {
+        await AsegurarCatalogosFormularioAsync();
         model = NewModel();
         formError = null;
         formOpen = true;
     }
 
-    private void EditTarea(Guid id)
+    private async Task EditTarea(Guid id)
     {
+        await AsegurarCatalogosFormularioAsync();
+
         var tarea = tareas.FirstOrDefault(candidato => candidato.Id == id);
         if (tarea is null)
         {
@@ -561,8 +631,10 @@
         }
     }
 
-    private void SelectTask(Guid id)
+    private async Task SelectTask(Guid id)
     {
+        await AsegurarCatalogosFormularioAsync();
+
         selected = tareas.FirstOrDefault(tarea => tarea.Id == id);
         pageError = null;
         executorKey = string.Empty;

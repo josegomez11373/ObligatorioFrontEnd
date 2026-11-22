@@ -4,6 +4,7 @@
 @inject IServicioEventos EventoService
 @inject IServicioTareas TareaService
 @inject IServicioFotografias FotografiaService
+@inject IAuthService Auth
 @inject NotificadorDatos Notificador
 
 @using ObligatorioFrontEnd.Api.Contratos
@@ -185,9 +186,20 @@
 
         try
         {
-            campanas = await CampanaService.GetAllAsync(incluirAnuladas: true);
-            eventos = await EventoService.GetAllAsync(incluirAnulados: true);
-            tareas = await TareaService.GetAllAsync(incluirAnuladas: true);
+            var campanasTask = CargarSiPuedeAsync(
+                SigaModule.Campanas,
+                () => CampanaService.GetAllAsync(incluirAnuladas: true));
+            var eventosTask = CargarSiPuedeAsync(
+                SigaModule.Eventos,
+                () => EventoService.GetAllAsync(incluirAnulados: true));
+            var tareasTask = TareaService.GetAllAsync(incluirAnuladas: true);
+
+            await Task.WhenAll(campanasTask, eventosTask, tareasTask);
+
+            campanas = await campanasTask;
+            eventos = await eventosTask;
+            tareas = await tareasTask;
+
             await CargarFotosCampanaAsync();
         }
         catch (InvalidOperationException exception)
@@ -217,14 +229,25 @@
 
         var asignacionIds = AsignacionIdsCampana();
 
-        foreach (var evento in eventos.Where(evento => asignacionIds.Contains(evento.CampanaPotreroId)))
+        var fotos = eventos
+            .Where(evento => asignacionIds.Contains(evento.CampanaPotreroId))
+            .SelectMany(evento => evento.Fotografias)
+            .ToList();
+
+        var descargas = fotos.Select(async foto => (
+            foto.Id,
+            Url: await FotografiaService.ObtenerDataUrlAsync(foto)));
+
+        foreach (var (id, url) in await Task.WhenAll(descargas))
         {
-            foreach (var foto in evento.Fotografias)
-            {
-                fotoUrls[foto.Id] = await FotografiaService.ObtenerDataUrlAsync(foto);
-            }
+            fotoUrls[id] = url;
         }
     }
+
+    private Task<IReadOnlyList<T>> CargarSiPuedeAsync<T>(
+        SigaModule modulo,
+        Func<Task<IReadOnlyList<T>>> cargar) =>
+        Auth.CanView(modulo) ? cargar() : Task.FromResult<IReadOnlyList<T>>([]);
 
     private void HandleChanged(string modulo)
     {

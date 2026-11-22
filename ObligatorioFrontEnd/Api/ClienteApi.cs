@@ -10,9 +10,13 @@ namespace ObligatorioFrontEnd.Api;
 /// <summary>
 /// Transporte HTTP hacia ApiSiga. No conoce reglas de negocio: solo agrega el
 /// token, deserializa y traduce los errores de la API a <see cref="ApiException"/>.
+/// Los GET se reintentan y se cachean por circuito para sobrevivir al arranque
+/// en frío de la API y evitar listados duplicados.
 /// </summary>
 public sealed class ClienteApi
 {
+    private const int IntentosGet = 3;
+
     /// <summary>
     /// La API serializa enums como string y usa camelCase (defaults de ASP.NET Core).
     /// <see cref="JsonSerializerDefaults.Web"/> resuelve el camelCase y el converter
@@ -26,18 +30,29 @@ public sealed class ClienteApi
 
     private readonly HttpClient _http;
     private readonly TokenStore _token;
+    private readonly CacheDatos _cache;
 
-    public ClienteApi(HttpClient http, TokenStore token)
+    public ClienteApi(HttpClient http, TokenStore token, CacheDatos cache)
     {
         _http = http;
         _token = token;
+        _cache = cache;
     }
 
     /// <summary>Dirección base de la API, usada para resolver URLs relativas de archivos.</summary>
     public Uri? BaseAddress => _http.BaseAddress;
 
-    public Task<T> GetAsync<T>(string ruta, CancellationToken cancellationToken = default) =>
-        EnviarJsonAsync<T>(HttpMethod.Get, ruta, null, cancellationToken);
+    public async Task<T> GetAsync<T>(string ruta, CancellationToken cancellationToken = default)
+    {
+        if (_cache.TryObtener<T>(ruta, out var cacheado))
+        {
+            return cacheado;
+        }
+
+        var valor = await EnviarJsonAsync<T>(HttpMethod.Get, ruta, null, cancellationToken);
+        _cache.Guardar(ruta, valor);
+        return valor;
+    }
 
     public Task<T> PostAsync<T>(string ruta, object cuerpo, CancellationToken cancellationToken = default) =>
         EnviarJsonAsync<T>(HttpMethod.Post, ruta, cuerpo, cancellationToken);
@@ -69,8 +84,9 @@ public sealed class ClienteApi
     {
         using var request = CrearSolicitud(HttpMethod.Post, ruta);
         request.Content = contenido;
-        using var response = await EjecutarAsync(request, cancellationToken);
+        using var response = await _http.SendAsync(request, cancellationToken);
         await ValidarAsync(response, cancellationToken);
+        _cache.Limpiar();
 
         try
         {
@@ -93,7 +109,7 @@ public sealed class ClienteApi
         CancellationToken cancellationToken = default)
     {
         using var request = CrearSolicitud(HttpMethod.Get, ruta);
-        using var response = await EjecutarAsync(request, cancellationToken);
+        using var response = await EnviarAsync(request, cancellationToken);
 
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
@@ -110,28 +126,61 @@ public sealed class ClienteApi
         object? cuerpo,
         CancellationToken cancellationToken)
     {
-        using var request = CrearSolicitud(metodo, ruta);
+        var intentos = metodo == HttpMethod.Get ? IntentosGet : 1;
 
-        if (cuerpo is not null)
+        for (var intento = 1; ; intento++)
         {
-            request.Content = JsonContent.Create(cuerpo, cuerpo.GetType(), options: Json);
-        }
+            using var request = CrearSolicitud(metodo, ruta);
 
-        using var response = await EjecutarAsync(request, cancellationToken);
-        await ValidarAsync(response, cancellationToken);
+            if (cuerpo is not null)
+            {
+                request.Content = JsonContent.Create(cuerpo, cuerpo.GetType(), options: Json);
+            }
 
-        try
-        {
-            return await response.Content.ReadFromJsonAsync<T>(Json, cancellationToken)
-                   ?? throw new ApiException(
-                       (int)response.StatusCode,
-                       "La API devolvió una respuesta vacía.");
-        }
-        catch (JsonException)
-        {
-            throw new ApiException(
-                (int)response.StatusCode,
-                "La API devolvió un formato inesperado. Revisá la configuración o la versión del servidor.");
+            try
+            {
+                using var response = await _http.SendAsync(request, cancellationToken);
+                await ValidarAsync(response, cancellationToken);
+
+                if (metodo != HttpMethod.Get)
+                {
+                    _cache.Limpiar();
+                }
+
+                try
+                {
+                    return await response.Content.ReadFromJsonAsync<T>(Json, cancellationToken)
+                           ?? throw new ApiException(
+                               (int)response.StatusCode,
+                               "La API devolvió una respuesta vacía.");
+                }
+                catch (JsonException)
+                {
+                    throw new ApiException(
+                        (int)response.StatusCode,
+                        "La API devolvió un formato inesperado. Revisá la configuración o la versión del servidor.");
+                }
+            }
+            catch (ApiException ex) when (intento < intentos && EsTransitorio(ex.Status))
+            {
+                await EsperarAsync(intento, cancellationToken);
+            }
+            catch (HttpRequestException) when (intento < intentos)
+            {
+                await EsperarAsync(intento, cancellationToken);
+            }
+            catch (HttpRequestException)
+            {
+                throw new ApiException(
+                    0,
+                    "No se pudo conectar con el servidor. Verificá que la API esté en ejecución.");
+            }
+            catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new ApiException(
+                    0,
+                    "La API tardó demasiado en responder. Si acaba de iniciar, esperá unos segundos y reintentá.");
+            }
         }
     }
 
@@ -148,8 +197,9 @@ public sealed class ClienteApi
             request.Content = JsonContent.Create(cuerpo, cuerpo.GetType(), options: Json);
         }
 
-        using var response = await EjecutarAsync(request, cancellationToken);
+        using var response = await EnviarAsync(request, cancellationToken);
         await ValidarAsync(response, cancellationToken);
+        _cache.Limpiar();
     }
 
     private HttpRequestMessage CrearSolicitud(HttpMethod metodo, string ruta)
@@ -164,7 +214,11 @@ public sealed class ClienteApi
         return request;
     }
 
-    private async Task<HttpResponseMessage> EjecutarAsync(
+    /// <summary>
+    /// Envía sin reintentos. Solo traduce los fallos de transporte; los códigos
+    /// HTTP los evalúa <see cref="ValidarAsync"/>.
+    /// </summary>
+    private async Task<HttpResponseMessage> EnviarAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken)
     {
@@ -200,4 +254,12 @@ public sealed class ClienteApi
 
         throw await ApiException.DesdeRespuestaAsync(response, Json, cancellationToken);
     }
+
+    private static bool EsTransitorio(int status) =>
+        status is (int)HttpStatusCode.BadGateway
+            or (int)HttpStatusCode.ServiceUnavailable
+            or (int)HttpStatusCode.GatewayTimeout;
+
+    private static Task EsperarAsync(int intento, CancellationToken cancellationToken) =>
+        Task.Delay(TimeSpan.FromMilliseconds(400 * intento), cancellationToken);
 }

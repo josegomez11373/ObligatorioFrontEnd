@@ -3,8 +3,8 @@ using ObligatorioFrontEnd.Models;
 namespace ObligatorioFrontEnd.Services;
 
 /// <summary>
-/// Punto de acceso a la sesión para las páginas. Lo implementan tanto el
-/// mock (<see cref="DemoAuthService"/>) como la API (<see cref="SesionService"/>).
+/// Punto de acceso a la sesión para las páginas. Lo implementa
+/// <see cref="SesionService"/> contra ApiSiga.
 /// </summary>
 public interface IAuthService : IUserScope
 {

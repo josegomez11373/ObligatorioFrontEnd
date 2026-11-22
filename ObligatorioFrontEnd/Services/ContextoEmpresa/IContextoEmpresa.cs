@@ -23,7 +23,5 @@ public interface IContextoEmpresa
 
     Task<bool> SeleccionarAsync(Guid empresaId, CancellationToken cancellationToken = default);
 
-    Task RefrescarAsync(CancellationToken cancellationToken = default);
-
     void Limpiar();
 }

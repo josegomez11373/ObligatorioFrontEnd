@@ -115,7 +115,7 @@ else
         </div>
         @if (!Dashboard.ActividadReciente.Any())
         {
-            <p class="muted">Sin actividad reciente.</p>
+            <p class="muted">@(cargando ? "Cargando actividad..." : "Sin actividad reciente.")</p>
         }
         else
         {
@@ -152,7 +152,7 @@ else
 
         try
         {
-            Dashboard = await ReportService.BuildAsync(new ReportFilter());
+            Dashboard = await ReportService.BuildAsync(new ReportFilter(), limiteAuditoria: 20);
         }
         catch (InvalidOperationException exception)
         {

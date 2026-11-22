@@ -41,32 +41,34 @@
         }
         else
         {
-            <table class="table">
-                <thead>
-                    <tr><th>Empresa</th><th>Nombre</th><th>Superficie (ha)</th><th>Estado</th><th></th></tr>
-                </thead>
-                <tbody>
-                    @foreach (var establecimiento in establecimientos)
-                    {
-                        <tr class="@(establecimiento.Activo ? null : "row-muted")">
-                            <td>@establecimiento.EmpresaNombre</td>
-                            <td>@establecimiento.Nombre</td>
-                            <td>@(establecimiento.SuperficieHa?.ToString("G") ?? "—")</td>
-                            <td>@(establecimiento.Activo ? "Activo" : "Desactivado")</td>
-                            <td class="actions">
-                                @if (CanManage)
-                                {
-                                    <button type="button" @onclick="() => EditEstablecimiento(establecimiento.Id)">Editar</button>
-                                    @if (establecimiento.Activo)
+            <div class="table-wrap">
+                <table class="table">
+                    <thead>
+                        <tr><th>Empresa</th><th>Nombre</th><th>Superficie (ha)</th><th>Estado</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var establecimiento in establecimientos)
+                        {
+                            <tr class="@(establecimiento.Activo ? null : "row-muted")">
+                                <td>@establecimiento.EmpresaNombre</td>
+                                <td>@establecimiento.Nombre</td>
+                                <td>@(establecimiento.SuperficieHa?.ToString("G") ?? "—")</td>
+                                <td>@(establecimiento.Activo ? "Activo" : "Desactivado")</td>
+                                <td class="actions">
+                                    @if (CanManage)
                                     {
-                                        <button type="button" class="destructive" @onclick="() => Deactivate(establecimiento.Id)">Desactivar</button>
+                                        <button type="button" @onclick="() => EditEstablecimiento(establecimiento.Id)">Editar</button>
+                                        @if (establecimiento.Activo)
+                                        {
+                                            <button type="button" class="destructive" @onclick="() => Deactivate(establecimiento.Id)">Desactivar</button>
+                                        }
                                     }
-                                }
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
         }
     </section>
     @if (CanManage)

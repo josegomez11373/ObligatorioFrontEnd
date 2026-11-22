@@ -2,7 +2,12 @@
 
 Frontend del Sistema Integrado de Gestión Agrícola (SIGA), construido con **Blazor Server** sobre **.NET 10**. Todos los datos se consumen de **ApiSiga por HTTP**; el frontend no comparte proyecto, submódulo ni código copiado con la API.
 
-La referencia funcional es [`SIGA_Analisis_y_Propuesta_v2.docx`](ObligatorioFrontEnd/Docs/SIGA_Analisis_y_Propuesta_v2.docx). El plan de trabajo histórico está en [`PLAN_FRONTEND_SIGA.md`](ObligatorioFrontEnd/Docs/PLAN_FRONTEND_SIGA.md) y el detalle de la integración en [`INTEGRACION_API_M2.md`](ObligatorioFrontEnd/Docs/INTEGRACION_API_M2.md).
+La referencia funcional es [`SIGA_Analisis_y_Propuesta_v2.docx`](ObligatorioFrontEnd/Docs/SIGA_Analisis_y_Propuesta_v2.docx). El procedimiento de validación funcional está en [`PRUEBAS_MANUALES.md`](PRUEBAS_MANUALES.md).
+
+Documentación de integración:
+
+- [`ObligatorioFrontEnd/Docs/CONTRATO_API.md`](ObligatorioFrontEnd/Docs/CONTRATO_API.md): revisión endpoint por endpoint y DTOs espejo.
+- [`ObligatorioFrontEnd/Docs/BUG_API_CAMPANAS.md`](ObligatorioFrontEnd/Docs/BUG_API_CAMPANAS.md): hallazgos de API resueltos y su evidencia.
 
 ## Requisitos
 
@@ -18,58 +23,68 @@ dotnet run --project ObligatorioFrontEnd
 
 Luego abrir la URL que muestra la consola (por defecto `http://localhost:5021`).
 
-### Modos de ejecución
+### Configuración
 
-Todos los módulos consultan ApiSiga. La clave `ApiSiga:UseApi` decide **únicamente el origen del login**:
+Todo el frontend consulta ApiSiga y el login se valida contra
+`POST /api/v1/auth/login` (JWT). La URL de la API se configura con
+`ApiSiga:BaseUrl`:
 
-| Archivo | `UseApi` | Login |
+| Archivo | `BaseUrl` | Uso |
 | --- | --- | --- |
-| `appsettings.json` | `true` | ApiSiga (`POST /api/v1/auth/login`) con JWT |
-| `appsettings.Development.json` | `true` | ApiSiga (`POST /api/v1/auth/login`) con JWT |
+| `appsettings.json` | `http://localhost:5100/` | Valor por defecto |
+| `appsettings.Development.json` | `http://localhost:5100/` | `dotnet run` en Development |
+| `appsettings.Production.json` | *(vacío)* | Obliga a definir la URL en el entorno |
 
-`UseApi=false` queda solo como alternativa para entrar con `DemoAuthService` sin API.
-Como ese login no emite JWT, las consultas de datos responderán `401`.
+En **Development** la URL de localhost ya está configurada. En **Production**
+el archivo deja `BaseUrl` vacío a propósito: hay que definir la variable de
+entorno `ApiSiga__BaseUrl` (o editar el JSON) antes de iniciar. Si falta o no es
+una URL absoluta `http`/`https`, `Program.cs` detiene el arranque con un mensaje
+claro en lugar de fallar en el primer request.
 
 Se puede forzar por variable de entorno, que tiene prioridad sobre los JSON:
 
 ```powershell
-# Login real contra la API
-$env:ApiSiga__UseApi = 'true'
 $env:ApiSiga__BaseUrl = 'http://localhost:5100/'
-dotnet run --project ObligatorioFrontEnd
-
-# Login demo (los datos se siguen pidiendo a la API)
-$env:ApiSiga__UseApi = 'false'
 dotnet run --project ObligatorioFrontEnd
 ```
 
-> **Importante:** `DemoAuthService` no emite JWT. Con `UseApi=false` la API responde
-> `401` a todas las consultas y las pantallas muestran listas vacías o el mensaje de
-> error, sin romperse. Para ver datos reales hay que usar `UseApi=true` con un usuario
-> válido de ApiSiga.
+En Production:
 
-Compilar sin ejecutar:
+```powershell
+$env:ApiSiga__BaseUrl = 'https://api.siga.ejemplo/'
+dotnet run --project ObligatorioFrontEnd -c Release
+```
+
+Si la API no está en ejecución, las pantallas muestran el mensaje de error y
+siguen siendo navegables.
+
+Compilar y probar sin ejecutar:
 
 ```powershell
 dotnet build ObligatorioFrontEnd.slnx -nologo
+dotnet test tests/ObligatorioFrontEnd.Tests/ObligatorioFrontEnd.Tests.csproj
 ```
+
+El proyecto `tests/ObligatorioFrontEnd.Tests` (xUnit, .NET 10) cubre la matriz
+de permisos, el cliente HTTP y su caché/reintentos, la sesión, la empresa
+activa, los DTOs y las agregaciones de reportes. Son **207 pruebas**.
 
 ## Usuarios de ApiSiga (semilla)
 
-Son los usuarios creados por la semilla de ApiSiga. Todos usan la contraseña **`siga2026`**.
+Son los usuarios creados por la semilla de ApiSiga. Todos usan la contraseña **`siga2026`**. Son datos de demostración: la pantalla de login no los muestra ni precarga credenciales.
 
 | Email | Rol | Alcance |
 | --- | --- | --- |
-| `admin@siga.demo` | Administrador General | Toda la plataforma |
+| `admin@siga.demo` | Administrador General | Acceso global |
 | `empresa@siga.demo` | Administrador de Empresa | Agro del Sur |
 | `ingeniero@siga.demo` | Ingeniero Agrónomo | Agro del Sur |
 | `operario@siga.demo` | Operario de Campo | Agro del Sur · Establecimiento La Esperanza |
-| `empresa2@siga.demo` | Administrador de Empresa | Campos Verdes |
+| `empresa2@siga.demo` | Administrador de Empresa | Campo Norte |
 | `contratista@siga.demo` | Contratista | Agro del Sur · solo tareas asignadas |
 
 ## Módulos
 
-Todos los módulos usan DTOs locales en `Api/Contratos/` y adaptadores HTTP en
+Todos los módulos usan DTOs locales en `Api/DTOs/` y adaptadores HTTP en
 `Services/Api/`:
 
 - **Empresas**, **Establecimientos**, **Potreros**, **Cultivos**, **Campañas** y
@@ -87,6 +102,36 @@ Todos los módulos usan DTOs locales en `Api/Contratos/` y adaptadores HTTP en
 
 Si un endpoint todavía no está disponible, la página muestra la lista vacía o el
 mensaje de error de la API y sigue siendo navegable.
+
+### Mapa de establecimientos
+
+La página `/mapa` (visible para los roles que ven Establecimientos) muestra en
+**Leaflet + OpenStreetMap** los establecimientos de la empresa activa y sus
+eventos geolocalizados.
+
+- ApiSiga no expone `Latitud`/`Longitud` para establecimientos, así que el
+  frontend guarda un overlay en
+  `ObligatorioFrontEnd/Data/establecimientos-geo.json` (`establecimientoId`,
+  `latitud`, `longitud`). Se versiona con fines de demo y se edita desde la propia
+  página con el botón **Ubicar**.
+- Los establecimientos sin coordenada propia se dibujan como **aproximados** en el
+  centro de sus eventos geolocalizados.
+- Los eventos usan `Latitud`/`Longitud` de la API y se pueden filtrar por tipo y
+  rango de fechas.
+- Al **registrar o editar un evento**, el formulario incluye el mismo mini-mapa:
+  clic o pin arrastrable, **Usar mi ubicación**, **Buscar dirección** y
+  **Quitar ubicación**. Las coordenadas manuales quedan en un desplegable de
+  respaldo. El texto de `Ubicación` sigue siendo la referencia humana y, si está
+  vacío, se completa con la dirección encontrada.
+- La búsqueda de direcciones usa **Nominatim** (OpenStreetMap) desde el navegador y
+  solo se ejecuta al presionar **Buscar**; requiere internet.
+- Leaflet está vendorizado en `ObligatorioFrontEnd/wwwroot/lib/leaflet`. Los *tiles*
+  se piden a OpenStreetMap, por lo que el mapa necesita conexión; si fallan, la
+  página muestra un aviso y mantiene los pines y el listado.
+- La edición de coordenadas reutiliza `SigaModule.Establecimientos`; un Contratista
+  no ve la página.
+- **Mejora futura:** agregar `Latitud`/`Longitud` (o un polígono GeoJSON) al
+  establecimiento en ApiSiga y reemplazar el overlay por esos campos.
 
 ### Rutas esperadas en ApiSiga
 
@@ -121,8 +166,7 @@ validaciones.
 
 ## Sesión y empresa activa
 
-- **Modo API:** el login se valida contra `POST /api/v1/auth/login`. El JWT se guarda en `TokenStore`, en el servidor Blazor del circuito, y **nunca** se envía al navegador.
-- **Modo demo:** la autenticación es simulada con los usuarios demo y la misma contraseña; no hay JWT.
+- **Sesión y empresa activa:** el login se valida contra ApiSiga. El JWT se guarda en `TokenStore`, en el servidor Blazor del circuito, y **nunca** se envía al navegador.
 - La sesión sobrevive a un **F5**. El navegador solo guarda un identificador opaco en `ProtectedSessionStorage`; los datos de la sesión viven en un `AlmacenSesiones` singleton del servidor.
 - La **empresa activa** del administrador general también se guarda y se restaura tras F5. Los demás roles usan la empresa fija de su usuario.
 - Al crear o desactivar una empresa, el selector de empresa activa se refresca automáticamente.
@@ -131,8 +175,8 @@ validaciones.
 
 ## Decisiones técnicas
 
-- **Sin datos mock:** ya no existen servicios en memoria ni entidades legacy. El único componente simulado es `DemoAuthService` (login).
-- **DTOs como contrato:** `Api/Contratos/` es un espejo de los contratos de ApiSiga. Los campos que la API no devuelve todavía llegan en `null`/`0` y la interfaz los muestra como `—` o lista vacía.
+- **Sin datos mock:** todos los módulos consumen ApiSiga por HTTP; no existen servicios en memoria ni entidades legacy.
+- **DTOs como contrato:** `Api/DTOs/` es un espejo de los contratos de ApiSiga. Los campos que la API no devuelve todavía llegan en `null`/`0` y la interfaz los muestra como `—` o lista vacía.
 - **Nombres resueltos:** la API devuelve `PotreroNombre`, `TipoEventoNombre`, `TipoTareaNombre` y `EjecutorNombre`. La campaña se deduce en el cliente cruzando `CampanaPotreroId` con `CampanaDto.Potreros`.
 - **Errores de API:** `ApiException` hereda de `InvalidOperationException`, así las páginas existentes muestran `exception.Message` sin cambios. Los errores de formato JSON también se traducen a `ApiException`.
 - **Fotografías:** el frontend envía un archivo por request y muestra las imágenes con `data:` URL obtenidas por descarga autenticada. La API solo devuelve fotografías visibles.
@@ -147,29 +191,33 @@ validaciones.
 ```
 ObligatorioFrontEnd/
 ├─ Api/                 Cliente HTTP, excepciones y contratos (DTOs/enums)
-│  └─ Contratos/        Espejo de los contratos de ApiSiga
+│  └─ DTOs/             Espejo de los contratos de ApiSiga
 ├─ Components/          Componentes y páginas Razor
 ├─ Models/              Modelos de formulario y de reportes
 ├─ Services/            Permisos, notificaciones, sesión y cálculos
 │  ├─ Api/              Adaptadores HTTP por módulo
 │  ├─ ContextoEmpresa/  Empresa activa por circuito
+│  ├─ Geo/              Coordenadas propias de establecimientos
+│  ├─ Interfaces/       Contratos de los servicios de datos
 │  ├─ Reportes/         Agregaciones del tablero
 │  └─ Sesion/           Token, sesión y persistencia
-├─ Docs/                Documento funcional, plan, integración y reporte de API
+├─ Data/                Coordenadas geográficas de establecimientos
+├─ Docs/                Documento funcional, contrato de API y reporte de bugs
 ├─ wwwroot/             Estilos y activos estáticos
-└─ Program.cs           DI, cultura es-UY y selección del login
+└─ Program.cs           DI, cultura es-UY y login contra la API
 ```
 
-## Cambios pendientes
+## Pendientes y observaciones
 
-- **Filtros por empresa en la API.** Los listados de cultivos, campañas y usuarios no aceptan `empresaId`; el administrador general filtra en el cliente.
-- **Reportes del servidor.** Existen `/api/v1/reportes/actividad`, `/costos` y `/tareas`, pero el tablero todavía se agrega en el cliente.
+- **Filtro `empresaId` en la API.** Varios listados aceptan `empresaId`, pero el frontend no lo envía: descarga el alcance que la API ya limita por token y filtra en el cliente con la empresa activa. No hay fuga de datos; enviarlo reduciría el volumen transferido cuando el administrador general trabaja con muchas empresas. Ver [`CONTRATO_API.md`](ObligatorioFrontEnd/Docs/CONTRATO_API.md).
+- **Reportes del servidor.** Existen `/api/v1/reportes/actividad`, `/costos` y `/tareas`, pero el tablero todavía se agrega en el cliente para combinar filtros y fuentes.
 - **Cierre por potrero.** La API expone `PUT /campanas/{id}/potreros/{campanaPotreroId}/cerrar`; la pantalla actual cierra solo la campaña completa.
 
 ## Limitaciones de esta etapa
 
+- **Coordenadas de establecimientos:** `EstablecimientoDto` no expone `Latitud`/`Longitud`. El frontend usa el overlay local `Data/establecimientos-geo.json` y dibuja los establecimientos sin coordenada como **aproximados**. Es una limitación del contrato de la API, documentada en [`CONTRATO_API.md`](ObligatorioFrontEnd/Docs/CONTRATO_API.md).
 - **Fotografías ocultas:** `EventoDto.Fotografias` solo incluye visibles, por lo que una foto ocultada deja de aparecer al recargar el evento.
 - **Nombre de archivo:** la API guarda una ruta con GUID; la pantalla muestra el nombre del archivo almacenado.
 - **HEIC:** se puede subir, pero la visualización depende del soporte del navegador.
 - Una campaña nueva siempre se crea como **Planificada**; el estado se cambia después con Editar.
-- `FechaCreacion` puede mostrarse como `—` porque ApiSiga todavía devuelve `0001-01-01` en algunas entidades (defecto del `AuditoriaInterceptor`).
+- `FechaCreacion` ya se recibe correctamente: el interceptor de auditoría de ApiSiga fue corregido. `SigaTime.FormatOrDash` se conserva como defensa para registros históricos anteriores al fix. Ver [`BUG_API_CAMPANAS.md`](ObligatorioFrontEnd/Docs/BUG_API_CAMPANAS.md).

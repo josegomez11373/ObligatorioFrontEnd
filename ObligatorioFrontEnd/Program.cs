@@ -14,9 +14,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
-// El login de demostración sigue disponible mientras no se configure la API.
-builder.Services.AddScoped<DemoAuthService>();
 builder.Services.AddScoped<TokenStore>();
+builder.Services.AddScoped<CacheDatos>();
 builder.Services.AddScoped<NotificadorDatos>();
 
 // La sesión vive en el servidor y el navegador solo guarda un id opaco; así el F5
@@ -26,29 +25,36 @@ builder.Services.AddScoped<ProtectedSessionStorage>();
 builder.Services.AddScoped<SesionPersistencia>();
 builder.Services.AddScoped<IContextoEmpresa, ContextoEmpresa>();
 
-// Todos los datos vienen de ApiSiga. ApiSiga:UseApi decide únicamente si el login
-// usa la API (SesionService) o el usuario de demostración (DemoAuthService).
-var useApi = builder.Configuration.GetValue<bool>("ApiSiga:UseApi");
-var baseUrl = builder.Configuration["ApiSiga:BaseUrl"] ?? "http://localhost:5100/";
+// Todos los datos y el login vienen de ApiSiga. Development usa localhost;
+// Production exige configurar ApiSiga__BaseUrl (o appsettings.Production.json).
+var baseUrl = builder.Configuration["ApiSiga:BaseUrl"];
+
+if (string.IsNullOrWhiteSpace(baseUrl))
+{
+    throw new InvalidOperationException(
+        "Falta configurar ApiSiga:BaseUrl. En Production definí la variable de entorno " +
+        "ApiSiga__BaseUrl con la URL de ApiSiga.");
+}
+
+if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var apiUri) ||
+    (apiUri.Scheme != Uri.UriSchemeHttp && apiUri.Scheme != Uri.UriSchemeHttps))
+{
+    throw new InvalidOperationException(
+        $"ApiSiga:BaseUrl no es una URL absoluta válida: '{baseUrl}'.");
+}
 
 builder.Services.AddHttpClient<ClienteApi>(http =>
 {
-    http.BaseAddress = new Uri(baseUrl);
+    http.BaseAddress = apiUri;
     http.Timeout = TimeSpan.FromSeconds(30);
 });
 
-if (useApi)
-{
-    builder.Services.AddScoped<SesionService>();
-    builder.Services.AddScoped<IAuthService>(sp => sp.GetRequiredService<SesionService>());
-}
-else
-{
-    builder.Services.AddScoped<IAuthService>(sp => sp.GetRequiredService<DemoAuthService>());
-}
+builder.Services.AddScoped<SesionService>();
+builder.Services.AddScoped<IAuthService>(sp => sp.GetRequiredService<SesionService>());
 
 builder.Services.AddScoped<ServicioEmpresasApi>();
 builder.Services.AddScoped<ServicioEstablecimientosApi>();
+builder.Services.AddScoped<ServicioGeoEstablecimientos>();
 builder.Services.AddScoped<ServicioPotrerosApi>();
 builder.Services.AddScoped<ServicioCultivosApi>();
 builder.Services.AddScoped<ServicioCampanasApi>();
@@ -66,6 +72,7 @@ builder.Services.AddScoped<ServicioReportesApi>();
 
 builder.Services.AddScoped<IServicioEmpresas>(sp => sp.GetRequiredService<ServicioEmpresasApi>());
 builder.Services.AddScoped<IServicioEstablecimientos>(sp => sp.GetRequiredService<ServicioEstablecimientosApi>());
+builder.Services.AddScoped<IServicioGeoEstablecimientos>(sp => sp.GetRequiredService<ServicioGeoEstablecimientos>());
 builder.Services.AddScoped<IServicioPotreros>(sp => sp.GetRequiredService<ServicioPotrerosApi>());
 builder.Services.AddScoped<IServicioCultivos>(sp => sp.GetRequiredService<ServicioCultivosApi>());
 builder.Services.AddScoped<IServicioCampanas>(sp => sp.GetRequiredService<ServicioCampanasApi>());

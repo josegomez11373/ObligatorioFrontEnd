@@ -1,11 +1,16 @@
 @if (IsOpen)
 {
-    <div class="side-panel-backdrop" @onclick="Close">
+    <div class="side-panel-backdrop"
+         @onpointerdown="MarcarPresionEnFondo"
+         @onclick="CerrarSiPresionEnFondo">
         <aside class="side-panel"
+               @ref="panel"
                role="dialog"
                aria-modal="true"
                aria-labelledby="side-panel-title"
                tabindex="-1"
+               @onpointerdown:stopPropagation="true"
+               @onpointerup="DesmarcarPresion"
                @onclick:stopPropagation="true"
                @onkeydown="HandleKeyDown">
             <header class="side-panel__header">
@@ -29,7 +34,60 @@
     [Parameter] public EventCallback OnClose { get; set; }
     [Parameter] public RenderFragment? ChildContent { get; set; }
 
-    private Task Close() => OnClose.InvokeAsync();
+    /// <summary>
+    /// El navegador dispara el <c>click</c> en el ancestro común: si el usuario
+    /// presiona dentro del panel y suelta fuera, el fondo recibiría el click y
+    /// cerraría el formulario. Solo cerramos si la presión también empezó afuera.
+    /// </summary>
+    private bool presionEnFondo;
+    private ElementReference panel;
+    private bool enfocado;
+
+    /// <summary>
+    /// Al abrir el panel se lleva el foco al contenedor para que Escape funcione
+    /// sin obligar al usuario a hacer clic primero. Se libera al cerrar.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (IsOpen && !enfocado)
+        {
+            enfocado = true;
+
+            try
+            {
+                await panel.FocusAsync();
+            }
+            catch (InvalidOperationException)
+            {
+                // El circuito se desconectó; el panel se cerrará con la navegación.
+            }
+        }
+        else if (!IsOpen)
+        {
+            enfocado = false;
+        }
+    }
+
+    private void MarcarPresionEnFondo() => presionEnFondo = true;
+
+    private void DesmarcarPresion() => presionEnFondo = false;
+
+    private Task CerrarSiPresionEnFondo()
+    {
+        if (!presionEnFondo)
+        {
+            return Task.CompletedTask;
+        }
+
+        presionEnFondo = false;
+        return Close();
+    }
+
+    private Task Close()
+    {
+        presionEnFondo = false;
+        return OnClose.InvokeAsync();
+    }
 
     private Task HandleKeyDown(KeyboardEventArgs args) =>
         args.Key == "Escape" ? Close() : Task.CompletedTask;

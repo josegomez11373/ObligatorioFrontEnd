@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using ObligatorioFrontEnd.Api.Contratos;
-using ObligatorioFrontEnd.Models;
 
 namespace ObligatorioFrontEnd.Services;
 
@@ -15,9 +14,6 @@ public sealed class SesionGuardada
 
     /// <summary>Usuario devuelto por la API cuando el login fue real.</summary>
     public UsuarioSesionDto? Usuario { get; init; }
-
-    /// <summary>Usuario del modo demo, para no depender de volver a buscarlo.</summary>
-    public DemoUser? UsuarioDemo { get; init; }
 }
 
 /// <summary>

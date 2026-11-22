@@ -18,6 +18,7 @@ public static class ModulosDatos
     public const string Maquinaria = "maquinaria";
     public const string Contratistas = "contratistas";
     public const string Auditoria = "auditoria";
+    public const string Mapa = "mapa";
     public const string EmpresaActiva = "empresa-activa";
 }
 

@@ -1,6 +1,14 @@
+@using System.Globalization
+@using System.Text.Json
 @using Microsoft.AspNetCore.Components.Forms
 @using ObligatorioFrontEnd.Api.Contratos
 @using ObligatorioFrontEnd.Models
+@using ObligatorioFrontEnd.Models.Geo
+
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject IConfiguration Config
+@inject ILogger<EventoForm> Logger
 
 <EditForm Model="Model" OnValidSubmit="HandleValidSubmit">
     <DataAnnotationsValidator />
@@ -43,18 +51,67 @@
 
     <div class="form-field">
         <label for="ubicacion">Ubicación</label>
-        <InputText id="ubicacion" @bind-Value="Model.Ubicacion" placeholder="Opcional" />
+        <InputText id="ubicacion" @bind-Value="Model.Ubicacion" placeholder="Opcional: referencia del lugar" />
     </div>
 
-    <div class="form-row">
-        <div class="form-field">
-            <label for="latitud">Latitud</label>
-            <InputNumber id="latitud" @bind-Value="Model.Latitud" step="0.000001" placeholder="Opcional" />
+    <div class="evento-mapa">
+        <div class="evento-mapa__encabezado">
+            <span class="evento-mapa__titulo">Ubicación en el mapa</span>
+            <span class="muted evento-mapa__coordenada">@TextoCoordenada()</span>
         </div>
-        <div class="form-field">
-            <label for="longitud">Longitud</label>
-            <InputNumber id="longitud" @bind-Value="Model.Longitud" step="0.000001" placeholder="Opcional" />
+
+        <div id="@idMapa" class="mapa-canvas mapa-canvas--selector" aria-label="Mapa para marcar la ubicación del evento"></div>
+
+        <p class="field-help evento-mapa__ayuda">
+            Hacé clic en el mapa o arrastrá el pin para marcar dónde ocurrió el evento.
+        </p>
+
+        <div class="evento-mapa__acciones">
+            <button type="button" @onclick="UsarMiUbicacionAsync" disabled="@geolocalizando">
+                @(geolocalizando ? "Obteniendo ubicación..." : "Usar mi ubicación")
+            </button>
+            @if (Model.Latitud is not null && Model.Longitud is not null)
+            {
+                <button type="button" class="destructive" @onclick="QuitarUbicacionAsync">Quitar ubicación</button>
+            }
         </div>
+
+        <div class="evento-mapa__busqueda">
+            <label for="evento-direccion">Buscar dirección</label>
+            <div class="mapa-busqueda">
+                <input id="evento-direccion" type="text" @bind="busquedaTexto" placeholder="Ruta 8 km 120, Lavalleja" />
+                <button type="button" @onclick="BuscarDireccionAsync" disabled="@geocodificando">
+                    @(geocodificando ? "Buscando..." : "Buscar")
+                </button>
+            </div>
+            <small class="field-help">Usa OpenStreetMap Nominatim. Si no la encuentra, marcá el punto en el mapa.</small>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(mapaAviso))
+        {
+            <p class="mapa-aviso">@mapaAviso</p>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(mapaError))
+        {
+            <p class="form-error" role="alert">@mapaError</p>
+        }
+
+        <details class="evento-mapa__manual">
+            <summary>Coordenadas manuales</summary>
+            <div class="form-row">
+                <div class="form-field compact-field">
+                    <label for="latitud">Latitud</label>
+                    <input id="latitud" type="text" inputmode="decimal" @bind="latTexto"
+                           @bind:after="AplicarCoordenadasManualesAsync" placeholder="-34.403724" />
+                </div>
+                <div class="form-field compact-field">
+                    <label for="longitud">Longitud</label>
+                    <input id="longitud" type="text" inputmode="decimal" @bind="lngTexto"
+                           @bind:after="AplicarCoordenadasManualesAsync" placeholder="-55.297149" />
+                </div>
+            </div>
+        </details>
     </div>
 
     <div class="form-field">
@@ -80,13 +137,343 @@
 @code {
     private const long MaxFileSize = 10 * 1024 * 1024;
 
+    private static readonly JsonSerializerOptions OpcionesJson = new(JsonSerializerDefaults.Web);
+
+    private readonly string idMapa = $"evento-mapa-{Guid.NewGuid():N}";
+
     [Parameter, EditorRequired] public EventoFormModel Model { get; set; } = new();
     [Parameter] public IReadOnlyList<CampanaDto> Campanas { get; set; } = [];
     [Parameter] public IReadOnlyList<TipoEventoDto> TiposEvento { get; set; } = [];
     [Parameter] public EventCallback<EventoFormModel> OnValidSubmit { get; set; }
     [Parameter] public EventCallback OnCancel { get; set; }
 
+    private IJSObjectReference? moduloMapa;
+    private DotNetObjectReference<EventoForm>? referenciaMapa;
+    private bool mapaListo;
+    private bool geolocalizando;
+    private bool geocodificando;
+    private string latTexto = string.Empty;
+    private string lngTexto = string.Empty;
+    private string busquedaTexto = string.Empty;
+    private string? mapaError;
+    private string? mapaAviso;
     private string? photoError;
+
+    protected override void OnInitialized()
+    {
+        latTexto = Formatear(Model.Latitud);
+        lngTexto = Formatear(Model.Longitud);
+        busquedaTexto = Model.Ubicacion ?? string.Empty;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            moduloMapa = await JS.InvokeAsync<IJSObjectReference>("import", "./js/mapa.js");
+            referenciaMapa = DotNetObjectReference.Create(this);
+
+            var (centroLat, centroLng) = CentroInicial();
+            var hayPin = Model.Latitud is not null && Model.Longitud is not null;
+
+            mapaListo = await moduloMapa.InvokeAsync<bool>(
+                "crearSelector",
+                idMapa,
+                Model.Latitud ?? centroLat,
+                Model.Longitud ?? centroLng,
+                referenciaMapa,
+                new
+                {
+                    conPin = hayPin,
+                    zoomRueda = false,
+                    titulo = "Ubicación del evento"
+                });
+
+            if (!mapaListo)
+            {
+                mapaError = "No se pudo cargar el mapa. Podés escribir las coordenadas a mano.";
+            }
+        }
+        catch (Exception exception) when (exception is JSException or InvalidOperationException)
+        {
+            Logger.LogWarning(exception, "No se pudo inicializar el mini-mapa del evento.");
+            mapaError = "No se pudo cargar el mapa. Podés escribir las coordenadas a mano.";
+        }
+    }
+
+    private (double Latitud, double Longitud) CentroInicial()
+    {
+        var seccion = Config.GetSection("Mapa");
+
+        return (seccion.GetValue<double?>("CentroLat") ?? -34.9011,
+                seccion.GetValue<double?>("CentroLng") ?? -56.1645);
+    }
+
+    private string TextoCoordenada() =>
+        Model.Latitud is double latitud && Model.Longitud is double longitud
+            ? $"GPS: {Formatear(latitud)}, {Formatear(longitud)}"
+            : "Sin ubicación marcada";
+
+    private static string Formatear(double? valor) =>
+        valor is double numero
+            ? numero.ToString("0.######", CultureInfo.InvariantCulture)
+            : string.Empty;
+
+    [JSInvokable]
+    public Task OnPinMovido(double latitud, double longitud)
+    {
+        Model.Latitud = latitud;
+        Model.Longitud = longitud;
+        latTexto = Formatear(latitud);
+        lngTexto = Formatear(longitud);
+        mapaError = null;
+
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task UsarMiUbicacionAsync()
+    {
+        if (moduloMapa is null || !mapaListo)
+        {
+            mapaError = "El mapa todavía no está listo. Esperá un segundo y volvé a intentar.";
+            return;
+        }
+
+        mapaError = null;
+        mapaAviso = null;
+        geolocalizando = true;
+
+        try
+        {
+            var posicion = await moduloMapa.InvokeAsync<double[]>("obtenerUbicacionActual");
+            if (posicion is not { Length: 2 })
+            {
+                mapaError = "El navegador no devolvió una ubicación válida.";
+                return;
+            }
+
+            Model.Latitud = posicion[0];
+            Model.Longitud = posicion[1];
+            latTexto = Formatear(Model.Latitud);
+            lngTexto = Formatear(Model.Longitud);
+
+            await moduloMapa.InvokeVoidAsync("fijarPin", idMapa, posicion[0], posicion[1]);
+            mapaAviso = "Se usó la ubicación del navegador. Revisá el pin antes de guardar.";
+        }
+        catch (JSException exception)
+        {
+            Logger.LogWarning(exception, "No se pudo obtener la ubicación del navegador.");
+            mapaError = "No se pudo obtener la ubicación. Marcá el punto en el mapa o cargá las coordenadas.";
+        }
+        finally
+        {
+            geolocalizando = false;
+        }
+    }
+
+    private async Task BuscarDireccionAsync()
+    {
+        if (moduloMapa is null || !mapaListo)
+        {
+            mapaError = "El mapa todavía no está listo. Esperá un segundo y volvé a intentar.";
+            return;
+        }
+
+        mapaError = null;
+        mapaAviso = null;
+
+        var texto = busquedaTexto.Trim();
+        if (texto.Length == 0)
+        {
+            mapaError = "Escribí una dirección para buscar.";
+            return;
+        }
+
+        geocodificando = true;
+
+        try
+        {
+            var json = await moduloMapa.InvokeAsync<string?>("buscarDireccion", texto);
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                mapaError = "No se encontró la dirección. Probá con una más precisa o marcá el punto en el mapa.";
+                return;
+            }
+
+            var direccion = JsonSerializer.Deserialize<DireccionEncontrada>(json, OpcionesJson);
+            if (direccion is null)
+            {
+                mapaError = "El servicio de direcciones devolvió una respuesta inesperada.";
+                return;
+            }
+
+            Model.Latitud = direccion.Latitud;
+            Model.Longitud = direccion.Longitud;
+            latTexto = Formatear(Model.Latitud);
+            lngTexto = Formatear(Model.Longitud);
+
+            if (string.IsNullOrWhiteSpace(Model.Ubicacion))
+            {
+                Model.Ubicacion = direccion.Direccion;
+            }
+
+            await moduloMapa.InvokeVoidAsync("fijarPin", idMapa, direccion.Latitud, direccion.Longitud);
+            mapaAviso = $"Encontrado: {direccion.Direccion}";
+        }
+        catch (JSException exception)
+        {
+            Logger.LogWarning(exception, "Falló la búsqueda de direcciones.");
+            mapaError = "No se pudo buscar la dirección. Revisá la conexión o marcá el punto a mano.";
+        }
+        finally
+        {
+            geocodificando = false;
+        }
+    }
+
+    private async Task QuitarUbicacionAsync()
+    {
+        Model.Latitud = null;
+        Model.Longitud = null;
+        latTexto = string.Empty;
+        lngTexto = string.Empty;
+        mapaAviso = null;
+        mapaError = null;
+
+        if (moduloMapa is not null && mapaListo)
+        {
+            try
+            {
+                await moduloMapa.InvokeVoidAsync("quitarPin", idMapa);
+            }
+            catch (JSException)
+            {
+                // El mapa ya no está disponible; las coordenadas igual quedaron limpias.
+            }
+        }
+    }
+
+    private async Task AplicarCoordenadasManualesAsync()
+    {
+        mapaError = null;
+        mapaAviso = null;
+
+        var latVacia = string.IsNullOrWhiteSpace(latTexto);
+        var lngVacia = string.IsNullOrWhiteSpace(lngTexto);
+
+        if (latVacia && lngVacia)
+        {
+            await QuitarUbicacionAsync();
+            return;
+        }
+
+        if (latVacia || lngVacia)
+        {
+            mapaError = "Cargá latitud y longitud juntas, o dejá ambas vacías.";
+            return;
+        }
+
+        if (!TryLeerCoordenada(latTexto, -90, 90, out var latitud))
+        {
+            mapaError = "La latitud debe ser un número entre -90 y 90.";
+            return;
+        }
+
+        if (!TryLeerCoordenada(lngTexto, -180, 180, out var longitud))
+        {
+            mapaError = "La longitud debe ser un número entre -180 y 180.";
+            return;
+        }
+
+        Model.Latitud = latitud;
+        Model.Longitud = longitud;
+
+        if (moduloMapa is not null && mapaListo)
+        {
+            try
+            {
+                await moduloMapa.InvokeVoidAsync("fijarPin", idMapa, latitud, longitud);
+            }
+            catch (JSException)
+            {
+                // El pin queda desactualizado, pero las coordenadas ya son válidas.
+            }
+        }
+    }
+
+    private static bool TryLeerCoordenada(string? texto, double minimo, double maximo, out double valor)
+    {
+        valor = 0;
+
+        if (string.IsNullOrWhiteSpace(texto))
+        {
+            return false;
+        }
+
+        var normalizado = texto.Trim().Replace(',', '.');
+
+        return double.TryParse(
+                   normalizado,
+                   NumberStyles.Float,
+                   CultureInfo.InvariantCulture,
+                   out valor)
+               && double.IsFinite(valor)
+               && valor >= minimo
+               && valor <= maximo;
+    }
+
+    private async Task HandleValidSubmit()
+    {
+        if (!ValidarCoordenadas())
+        {
+            return;
+        }
+
+        await OnValidSubmit.InvokeAsync(Model);
+    }
+
+    private bool ValidarCoordenadas()
+    {
+        // Los textos son la fuente: tanto el pin como la carga manual los mantienen sincronizados.
+        var latVacia = string.IsNullOrWhiteSpace(latTexto);
+        var lngVacia = string.IsNullOrWhiteSpace(lngTexto);
+
+        if (latVacia && lngVacia)
+        {
+            Model.Latitud = null;
+            Model.Longitud = null;
+            mapaError = null;
+            return true;
+        }
+
+        if (latVacia || lngVacia)
+        {
+            mapaError = "La ubicación necesita latitud y longitud juntas.";
+            return false;
+        }
+
+        if (!TryLeerCoordenada(latTexto, -90, 90, out var latitud))
+        {
+            mapaError = "La latitud debe ser un número entre -90 y 90.";
+            return false;
+        }
+
+        if (!TryLeerCoordenada(lngTexto, -180, 180, out var longitud))
+        {
+            mapaError = "La longitud debe ser un número entre -180 y 180.";
+            return false;
+        }
+
+        Model.Latitud = latitud;
+        Model.Longitud = longitud;
+        mapaError = null;
+        return true;
+    }
 
     private async Task SelectPhotos(InputFileChangeEventArgs args)
     {
@@ -111,6 +498,23 @@
         Model.Fotos = uploads;
     }
 
-    private Task HandleValidSubmit() => OnValidSubmit.InvokeAsync(Model);
     private Task HandleCancel() => OnCancel.InvokeAsync();
+
+    public async ValueTask DisposeAsync()
+    {
+        if (moduloMapa is not null)
+        {
+            try
+            {
+                await moduloMapa.InvokeVoidAsync("destruir", idMapa);
+                await moduloMapa.DisposeAsync();
+            }
+            catch (Exception exception) when (exception is JSException or JSDisconnectedException or ObjectDisposedException)
+            {
+                // El circuito ya se cerró.
+            }
+        }
+
+        referenciaMapa?.Dispose();
+    }
 }
